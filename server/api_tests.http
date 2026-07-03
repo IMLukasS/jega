@@ -1,0 +1,50 @@
+### Test the Health Check Endpoint
+GET http://localhost:3000/health
+
+###
+
+### Create a New Workout Session
+POST http://localhost:3000/api/v1/workouts
+Content-Type: application/json
+
+{
+  "name": "Push Day A"
+}
+
+###
+
+### Test Validation (Should fail with 400)
+POST http://localhost:3000/api/v1/workouts
+Content-Type: application/json
+
+{
+  "name": ""
+}
+### Fetch All Workouts (Should see an array of whatever you've created)
+GET http://localhost:3000/api/v1/workouts
+
+###
+
+### Fetch a Specific Workout (REPLACE the ID below with a real ID generated from your POST test)
+GET http://localhost:3000/api/v1/workouts/5rhn5nj
+
+###
+
+### Test 404 Handling with a fake ID
+GET http://localhost:3000/api/v1/workouts/non-existent-id-123
+
+### Log a Set for a Workout (REPLACE the workout ID in the URL with your active workout ID)
+POST http://localhost:3000/api/v1/workouts/5rhn5nj/sets
+Content-Type: application/json
+
+{
+  "exercise_name": "Bench Press",
+  "weight": 100,
+  "reps": 8,
+  "rpe": 8.5
+}
+
+###
+
+### Fetch the Workout Again to see the Joined Sets (REPLACE the workout ID in the URL)
+GET http://localhost:3000/api/v1/workouts/REPLACE_WITH_YOUR_ID

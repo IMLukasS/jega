@@ -25,9 +25,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Jega server is running' })
 })
 
-// All API routes will be prefixed with /api/v1
-app.use('/api/v1', (req, res) => {
-  res.json({ message: 'API v1 ready' })
-})
+const workoutsRouter = require('./routes/workouts')
+app.use('/api/v1/workouts', workoutsRouter)
 
 module.exports = app

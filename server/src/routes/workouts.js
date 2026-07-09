@@ -1,78 +1,115 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db'); // Import our database connection pool
 
-// Our temporary in-memory relational tables
-let workoutsMockDB = [];
-let setsMockDB = []; // Mimics our SQL 'set_logs' table
-
-// 1. POST /api/v1/workouts - Create a session
-router.post('/', (req, res) => {
+// 1. POST /api/v1/workouts - Create a workout session in the cloud
+router.post('/', async (req, res) => {
   const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'Workout name is required' });
 
-  const newWorkout = {
-    id: Math.random().toString(36).substring(2, 9),
-    name: name,
-    created_at: new Date().toISOString()
-  };
+  if (!name) {
+    return res.status(400).json({ error: 'Workout name is required' });
+  }
 
-  workoutsMockDB.push(newWorkout);
-  return res.status(201).json(newWorkout);
+  try {
+    const queryText = `
+      INSERT INTO workout_logs (name, notes) 
+      VALUES ($1, $2) 
+      RETURNING id, name, started_at, notes;
+    `;
+    const result = await db.query(queryText, [name, req.body.notes || null]);
+    return res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Database Error in POST /api/v1/workouts:', error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
+  }
 });
 
-// 2. GET /api/v1/workouts - Retrieve all sessions
-router.get('/', (req, res) => {
-  return res.status(200).json(workoutsMockDB);
+// 2. GET /api/v1/workouts - Retrieve all sessions from the cloud
+router.get('/', async (req, res) => {
+  try {
+    // Senior Dev Standard: Sort by latest workout first using ORDER BY
+    const queryText = `
+      SELECT id, name, started_at, completed_at, notes 
+      FROM workout_logs 
+      ORDER BY started_at DESC;
+    `;
+    const result = await db.query(queryText);
+    
+    // Always return a 200 OK with an array, even if empty
+    return res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Database Error in GET /api/v1/workouts:', error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
+  }
 });
 
-// 3. GET /api/v1/workouts/:id - Retrieve a single workout WITH its sets
-router.get('/:id', (req, res) => {
+// 3. GET /api/v1/workouts/:id - Retrieve a single workout WITH its sets from the cloud
+router.get('/:id', async (req, res) => {
   const { id } = req.params;
-  const workout = workoutsMockDB.find(w => w.id === id);
 
-  if (!workout) {
-    return res.status(404).json({ error: `Workout with ID ${id} not found` });
+  try {
+    // Step A: Fetch the parent workout session
+    const workoutQuery = `SELECT * FROM workout_logs WHERE id = $1;`;
+    const workoutResult = await db.query(workoutQuery, [id]);
+
+    // Guard Clause: Check if it exists
+    if (workoutResult.rows.length === 0) {
+      return res.status(404).json({ error: `Workout with ID ${id} not found` });
+    }
+
+    const workout = workoutResult.rows[0];
+
+    // Step B: Fetch all sets tied to this workout_log_id, ordered sequentially
+    const setsQuery = `
+      SELECT id, set_number, actual_weight_kg, actual_reps, rpe, completed_at 
+      FROM set_logs 
+      WHERE workout_log_id = $1
+      ORDER BY set_number ASC;
+    `;
+    const setsResult = await db.query(setsQuery, [id]);
+
+    // Combine them using the Spread Operator
+    return res.status(200).json({
+      ...workout,
+      sets: setsResult.rows
+    });
+  } catch (error) {
+    console.error(`Database Error in GET /api/v1/workouts/${id}:`, error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
   }
-
-  // Relational Join: Filter out only the sets that belong to this workout ID
-  const workoutSets = setsMockDB.filter(set => set.workout_id === id);
-
-  // Spread the workout properties into a new object and attach the sets array
-  return res.status(200).json({
-    ...workout,
-    sets: workoutSets
-  });
 });
 
-// 4. POST /api/v1/workouts/:id/sets - Log a set for a specific workout
-router.post('/:id/sets', (req, res) => {
-  const { id } = req.params; // This is the workout_id from the URL
-  const { exercise_name, weight, reps, rpe } = req.body;
+// 4. POST /api/v1/workouts/:id/sets - Log a set for a specific workout in the cloud
+router.post('/:id/sets', async (req, res) => {
+  const { id } = req.params; // This is the workout_log_id
+  const { exercise_id, set_number, actual_weight_kg, actual_reps, rpe } = req.body;
 
-  // Integrity Check: Does the parent workout actually exist?
-  const workoutExists = workoutsMockDB.some(w => w.id === id);
-  if (!workoutExists) {
-    return res.status(404).json({ error: `Cannot log set. Workout with ID ${id} does not exist.` });
+  // Validation Guard Clause
+  if (!exercise_id || !set_number || !actual_weight_kg || !actual_reps) {
+    return res.status(400).json({ error: 'exercise_id, set_number, actual_weight_kg, and actual_reps are required' });
   }
 
-  // Data Validation
-  if (!exercise_name || !weight || !reps) {
-    return res.status(400).json({ error: 'exercise_name, weight, and reps are required' });
+  try {
+    // Integrity Check: Does the parent workout exist?
+    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1;', [id]);
+    if (workoutCheck.rows.length === 0) {
+      return res.status(404).json({ error: `Cannot log set. Workout log ${id} does not exist.` });
+    }
+
+    // Insert the new set record using parameterized query variables ($1, $2...)
+    const queryText = `
+      INSERT INTO set_logs (workout_log_id, exercise_id, set_number, actual_weight_kg, actual_reps, rpe)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *;
+    `;
+    const values = [id, exercise_id, set_number, actual_weight_kg, actual_reps, rpe || null];
+    
+    const result = await db.query(queryText, values);
+    return res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Database Error in POST /api/v1/workouts/:id/sets:', error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
   }
-
-  // Construct the new set record
-  const newSet = {
-    id: Math.random().toString(36).substring(2, 9),
-    workout_id: id, // The "Foreign Key" linking this set to its parent workout
-    exercise_name,
-    weight: Number(weight),
-    reps: Number(reps),
-    rpe: rpe ? Number(rpe) : null,
-    created_at: new Date().toISOString()
-  };
-
-  setsMockDB.push(newSet);
-  return res.status(201).json(newSet);
 });
 
 module.exports = router;

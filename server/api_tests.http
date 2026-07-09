@@ -1,9 +1,9 @@
-### Test the Health Check Endpoint
+### Health check
 GET http://localhost:3000/health
 
 ###
 
-### Create a New Workout Session
+### Create workout
 POST http://localhost:3000/api/v1/workouts
 Content-Type: application/json
 
@@ -13,38 +13,55 @@ Content-Type: application/json
 
 ###
 
-### Test Validation (Should fail with 400)
+### Create workout - validation test (should return 400)
 POST http://localhost:3000/api/v1/workouts
 Content-Type: application/json
 
 {
   "name": ""
 }
-### Fetch All Workouts (Should see an array of whatever you've created)
+
+###
+
+### Get all workouts
 GET http://localhost:3000/api/v1/workouts
 
 ###
 
-### Fetch a Specific Workout (REPLACE the ID below with a real ID generated from your POST test)
-GET http://localhost:3000/api/v1/workouts/5rhn5nj
+### Get single workout
+GET http://localhost:3000/api/v1/workouts/08bef391-a97f-460e-b43b-5424387460ab
 
 ###
 
-### Test 404 Handling with a fake ID
-GET http://localhost:3000/api/v1/workouts/non-existent-id-123
+### Get single workout - fake ID (should return 404)
+GET http://localhost:3000/api/v1/workouts/00000000-0000-0000-0000-000000000000
 
-### Log a Set for a Workout (REPLACE the workout ID in the URL with your active workout ID)
-POST http://localhost:3000/api/v1/workouts/5rhn5nj/sets
+###
+
+### Log a set
+POST http://localhost:3000/api/v1/workouts/08bef391-a97f-460e-b43b-5424387460ab/sets
 Content-Type: application/json
 
 {
-  "exercise_name": "Bench Press",
-  "weight": 100,
-  "reps": 8,
-  "rpe": 8.5
+  "set_number": 1,
+  "actual_weight_kg": 100,
+  "actual_reps": 8,
+  "rpe": 7.5
 }
 
 ###
 
-### Fetch the Workout Again to see the Joined Sets (REPLACE the workout ID in the URL)
-GET http://localhost:3000/api/v1/workouts/REPLACE_WITH_YOUR_ID
+### Get workout with sets
+GET http://localhost:3000/api/v1/workouts/08bef391-a97f-460e-b43b-5424387460ab
+
+
+POST http://localhost:3000/api/v1/workouts/08bef391-a97f-460e-b43b-5424387460ab/sets
+Content-Type: application/json
+
+{
+  "exercise_id": "3f3f0f18-3158-4761-8c65-6fde8ad3ebbe",
+  "set_number": 1,
+  "actual_weight_kg": 100,
+  "actual_reps": 8,
+  "rpe": 7.5
+}

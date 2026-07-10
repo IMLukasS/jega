@@ -1,0 +1,118 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #111 !important; /* The !important tag forces dark mode no matter what */
+  color: #ffffff !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Container spacing */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+header {
+  margin-top: 8px;
+}
+
+header h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+/* The Workout List Layout */
+.workout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Modern Card Styling */
+.workout-card {
+  background: #1e1e1e;
+  border: 1px solid #2d2d2d;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Flexbox header to put Name on left, Date on right */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-header h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.card-date {
+  color: #888;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-notes {
+  margin-top: 8px;
+  color: #aaa;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+/* Workout Form Alignment */
+.workout-form {
+  display: flex;
+  gap: 8px;
+}
+
+.workout-form input {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #2d2d2d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #fff;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.workout-form input:focus {
+  border-color: #555;
+}
+
+.workout-form button {
+  background: #ffffff;
+  color: #111;
+  border: none;
+  border-radius: 8px;
+  padding: 0 20px;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: opacity 0.2s;
+}
+
+.workout-form button:hover {
+  opacity: 0.9;
+}

@@ -48,27 +48,27 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Step A: Fetch the parent workout session
     const workoutQuery = `SELECT * FROM workout_logs WHERE id = $1;`;
     const workoutResult = await db.query(workoutQuery, [id]);
 
-    // Guard Clause: Check if it exists
     if (workoutResult.rows.length === 0) {
       return res.status(404).json({ error: `Workout with ID ${id} not found` });
     }
 
     const workout = workoutResult.rows[0];
 
-    // Step B: Fetch all sets tied to this workout_log_id, ordered sequentially
+    // NEW: We use a JOIN here to merge the sets with the exercises table!
     const setsQuery = `
-      SELECT id, set_number, actual_weight_kg, actual_reps, rpe, completed_at 
-      FROM set_logs 
-      WHERE workout_log_id = $1
-      ORDER BY set_number ASC;
+      SELECT 
+        sl.id, sl.set_number, sl.actual_weight_kg, sl.actual_reps, sl.rpe, sl.completed_at,
+        e.name AS exercise_name
+      FROM set_logs sl
+      JOIN exercises e ON sl.exercise_id = e.id
+      WHERE sl.workout_log_id = $1
+      ORDER BY sl.id ASC;
     `;
     const setsResult = await db.query(setsQuery, [id]);
 
-    // Combine them using the Spread Operator
     return res.status(200).json({
       ...workout,
       sets: setsResult.rows

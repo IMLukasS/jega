@@ -6,3 +6,7 @@ app.js: builds the app(config)
 index.js: turns on the app (entry/start)
 * app.listen uses () => b/c callback func
 * console.log(`words and {var}`) backticks to include var
+
+schema.sql: 
+* ON DELETE SET NULL, used for setting created by to NULL
+* ON DELETE SET CASCADE, deleting a circuit should delete all exercise connections

@@ -54,7 +54,7 @@ Content-Type: application/json
 ### Get workout with sets
 GET http://localhost:3000/api/v1/workouts/08bef391-a97f-460e-b43b-5424387460ab
 
-
+### Log a set with exercise_id
 POST http://localhost:3000/api/v1/workouts/08bef391-a97f-460e-b43b-5424387460ab/sets
 Content-Type: application/json
 

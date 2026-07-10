@@ -25,7 +25,13 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Jega server is running' })
 })
 
+// --- ROUTES ---
+
 const workoutsRouter = require('./routes/workouts')
 app.use('/api/v1/workouts', workoutsRouter)
+
+// Drop your new Routines route right here:
+const routinesRouter = require('./routes/routines')
+app.use('/api/v1/routines', routinesRouter)
 
 module.exports = app

@@ -32,12 +32,33 @@ function WorkoutList() {
       })
       .catch((err) => console.error('Error fetching workouts:', err));
 
-    // NEW: Fetch Routines (Blueprints)
+    // Fetch Routines (Blueprints)
     fetch('http://localhost:3000/api/v1/routines')
       .then((res) => res.json())
       .then((data) => setRoutines(data))
       .catch((err) => console.error('Error fetching routines:', err));
   }, []);
+
+  // --- NEW FUNCTION: Delete Template ---
+  const handleDeleteTemplate = async (templateId) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this template?");
+    if (!confirmDelete) return;
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/v1/routines/${templateId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Remove it from the screen instantly
+        setRoutines(prevRoutines => prevRoutines.filter(r => r.id !== templateId));
+      } else {
+        console.error("Failed to delete template");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
 
   const handleCreateWorkout = (e) => {
     e.preventDefault();
@@ -68,22 +89,48 @@ function WorkoutList() {
         <span className="subtitle">Home</span>
       </header>
 
-      {/* --- NEW SECTION: Start a Routine --- */}
+      {/* --- SECTION: Start a Routine --- */}
       <div style={{ marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '10px' }}>My Templates</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <h2 style={{ fontSize: '1.2rem', margin: 0 }}>My Templates</h2>
+          <Link to="/create-template" style={{ color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>
+            ＋ New
+          </Link>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {routines.map((routine) => (
-            <div key={routine.id} className="workout-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={routine.id} className="workout-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px' }}>
               <div>
                 <h3 style={{ margin: '0 0 5px 0' }}>{routine.name}</h3>
                 <span style={{ fontSize: '0.85rem', color: '#666' }}>{routine.exercises?.length || 0} Exercises</span>
               </div>
-              <Link 
-                to={`/focus/${routine.id}`} 
-                style={{ backgroundColor: '#000', color: '#fff', padding: '8px 16px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold' }}
-              >
-                Start
-              </Link>
+              
+              {/* --- NEW: Action Buttons (Trash & Start) --- */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteTemplate(routine.id);
+                  }}
+                  style={{ 
+                    background: 'transparent', 
+                    border: 'none', 
+                    cursor: 'pointer', 
+                    fontSize: '1.2rem',
+                    padding: '5px',
+                    opacity: '0.8'
+                  }}
+                  title="Delete Template"
+                >
+                  🗑️
+                </button>
+                <Link 
+                  to={`/focus/${routine.id}`} 
+                  style={{ backgroundColor: '#000', color: '#fff', padding: '8px 16px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold' }}
+                >
+                  Start
+                </Link>
+              </div>
             </div>
           ))}
         </div>

@@ -19,4 +19,5 @@ pool.on('error', (err) => {
 // Export the query helper function so our routes can use it
 module.exports = {
   query: (text, params) => pool.query(text, params),
+  connect: () => pool.connect(),
 };

@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import WorkoutList from './pages/WorkoutList'
 import WorkoutDetail from './pages/WorkoutDetail'
 import FocusWorkout from './components/FocusWorkout';
+import CreateTemplate from './pages/CreateTemplate'; // Or wherever you saved it
+
 
 function App() {
   return (
@@ -12,6 +14,7 @@ function App() {
         
         {/* Add this new line to create a dedicated page for your wizard! */}
         <Route path="/focus/:routineId" element={<FocusWorkout />} />
+        <Route path="/create-template" element={<CreateTemplate />} />
       </Routes>
     </BrowserRouter>
   )

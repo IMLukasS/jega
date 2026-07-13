@@ -34,4 +34,7 @@ app.use('/api/v1/workouts', workoutsRouter)
 const routinesRouter = require('./routes/routines')
 app.use('/api/v1/routines', routinesRouter)
 
+const exercisesRouter = require('./routes/exercises');
+app.use('/api/v1/exercises', exercisesRouter);
+
 module.exports = app

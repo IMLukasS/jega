@@ -61,7 +61,7 @@ router.get('/:id', async (req, res) => {
     const setsQuery = `
       SELECT 
         sl.id, sl.set_number, sl.actual_weight_kg, sl.actual_reps, sl.rpe, sl.completed_at,
-        e.name AS exercise_name
+        e.title AS exercise_name
       FROM set_logs sl
       JOIN exercises e ON sl.exercise_id = e.id
       WHERE sl.workout_log_id = $1

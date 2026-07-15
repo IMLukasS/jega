@@ -173,7 +173,7 @@ export default function CreateTemplate() {
       });
 
       if (response.ok) {
-        navigate('/'); 
+        navigate('/templates'); 
       } else {
         const errorData = await response.json();
         alert(errorData.error || "Failed to save template. Please try again.");
@@ -188,12 +188,12 @@ export default function CreateTemplate() {
     <div className="app-container" style={{ position: 'relative', paddingBottom: '40px' }}>
       <header>
         <button 
-          onClick={() => navigate('/')} 
+          onClick={() => navigate('/templates')} 
           style={{ background: 'transparent', color: '#888', padding: '0', marginBottom: '10px', border: 'none', fontSize: '1rem', cursor: 'pointer' }}
         >
-          ← Cancel
+          ← Back to Workouts
         </button>
-        <h1>Create Template</h1>
+        <h1>Create Workout</h1>
       </header>
 
       <div style={{ marginBottom: '20px' }}>

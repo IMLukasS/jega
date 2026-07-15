@@ -11,6 +11,22 @@ const formatDate = (isoString) => {
   }).format(date);
 };
 
+// ⏱️ NEW: Format raw duration seconds into a clean human-readable log string
+const formatDuration = (totalSeconds) => {
+  if (!totalSeconds) return '';
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  
+  if (hrs > 0) {
+    return `${hrs}h ${mins}m ${secs}s`;
+  }
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+};
+
 export default function WorkoutDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -25,7 +41,7 @@ export default function WorkoutDetail() {
   const [rpe, setRpe] = useState("");
   const [exerciseId] = useState("c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7");
 
-  // --- ADDED: History Inline Edit States ---
+  // History Inline Edit States
   const [editingSetId, setEditingSetId] = useState(null);
   const [editWeight, setEditWeight] = useState('');
   const [editReps, setEditReps] = useState('');
@@ -88,7 +104,6 @@ export default function WorkoutDetail() {
       .catch((err) => console.error("Error logging set:", err));
   };
 
-  // --- ADDED: History Update Submission Handler ---
   const handleUpdateHistorySet = async (setId) => {
     try {
       const response = await fetch(`http://localhost:3000/api/v1/workouts/${id}/sets/${setId}`, {
@@ -127,7 +142,6 @@ export default function WorkoutDetail() {
     }
   };
 
-  // --- ADDED: Trigger Inline Edit State Populator ---
   const startInlineEdit = (set) => {
     setEditingSetId(set.id);
     setEditWeight(set.actual_weight_kg ?? '');
@@ -158,7 +172,28 @@ export default function WorkoutDetail() {
         >
           ← Back to History
         </button>
-        <h1>{workout.name}</h1>
+        
+        {/* ⏱️ MODIFIED: Title and stopwatch duration alignment flex row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '4px' }}>
+          <h1 style={{ margin: 0 }}>{workout.name}</h1>
+          
+          {workout.duration_seconds > 0 && (
+            <div style={{
+              backgroundColor: '#2d2d34',
+              color: '#10b981',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontWeight: '700',
+              fontSize: '0.9rem',
+              fontFamily: 'monospace',
+              display: 'flex',
+              alignItems: 'center'
+            }}>
+              ⏱️ {formatDuration(workout.duration_seconds)}
+            </div>
+          )}
+        </div>
+        
         <span className="subtitle">{formatDate(workout.started_at)}</span>
       </header>
 
@@ -194,7 +229,6 @@ export default function WorkoutDetail() {
                   <div key={set.id} className="workout-card" style={{ padding: '12px', marginBottom: '8px' }}>
                     
                     {isEditingRow ? (
-                      // --- VIEW A: Inline Input Fields matching Tracking Type ---
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
                         <span style={{ fontWeight: '600', color: '#888', marginRight: '4px' }}>Set {index + 1}</span>
                         
@@ -232,7 +266,6 @@ export default function WorkoutDetail() {
                         </div>
                       </div>
                     ) : (
-                      // --- VIEW B: Standard Static Read-Only Row view with Pencil Edit Trigger ---
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: '600' }}>Set {index + 1}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

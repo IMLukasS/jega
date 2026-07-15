@@ -15,43 +15,65 @@ export default function FocusWorkout() {
   const [timeMin, setTimeMin] = useState('');
   const [timeSec, setTimeSec] = useState('');
   const [distance, setDistance] = useState('');
-  const [rpe, setRpe] = useState(''); // ---> Step 1: Handled!
+  const [rpe, setRpe] = useState('');
 
   const [allCompletedSets, setAllCompletedSets] = useState({});
   const [editingSetIndex, setEditingSetIndex] = useState(null);
   const sessionStarted = useRef(false);
 
-    useEffect(() => {
-        if (sessionStarted.current) return;
-        sessionStarted.current = true;
+  // ⏱️ NEW: Elapsed Time Stopwatch State
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-        fetch('http://localhost:3000/api/v1/routines')
-        .then((res) => res.json())
-        .then(async (data) => {
-            const selectedRoutine = data.find((r) => r.id === routineId);
-            if (!selectedRoutine) return;
-            setRoutine(selectedRoutine);
+  // ⏱️ NEW: Running interval tracking side-effect
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1);
+    }, 1000);
 
-            const startSessionRes = await fetch('http://localhost:3000/api/v1/workouts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                name: `${selectedRoutine.name} Session`,
-                routine_id: selectedRoutine.id 
-            })
-            });
-            
-            const sessionData = await startSessionRes.json();
-            setWorkoutId(sessionData.id);
+    return () => clearInterval(timerInterval);
+  }, []);
+
+  // ⏱️ NEW: Monospace clean layout timestamp formatter
+  const formatTime = (totalSeconds) => {
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    const pad = (num) => String(num).padStart(2, '0');
+
+    if (hrs > 0) return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    return `${pad(mins)}:${pad(secs)}`;
+  };
+
+  useEffect(() => {
+    if (sessionStarted.current) return;
+    sessionStarted.current = true;
+
+    fetch('http://localhost:3000/api/v1/routines')
+    .then((res) => res.json())
+    .then(async (data) => {
+        const selectedRoutine = data.find((r) => r.id === routineId);
+        if (!selectedRoutine) return;
+        setRoutine(selectedRoutine);
+
+        const startSessionRes = await fetch('http://localhost:3000/api/v1/workouts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+              name: `${selectedRoutine.name} Session`,
+              routine_id: selectedRoutine.id 
+          })
         });
-    }, [routineId]);
+        
+        const sessionData = await startSessionRes.json();
+        setWorkoutId(sessionData.id);
+    });
+  }, [routineId]);
 
   const activeExercise = routine?.exercises?.[activeExerciseIndex];
   const currentCompletedSets = allCompletedSets[activeExerciseIndex] || [];
   const currentSetIndex = currentCompletedSets.length;
   const plannedSet = activeExercise?.sets?.[currentSetIndex];
 
-  // Auto-fill inputs with the planned target for the current set
   useEffect(() => {
     if (editingSetIndex !== null) return; 
 
@@ -61,16 +83,30 @@ export default function FocusWorkout() {
       setTimeMin(plannedSet.time_minutes != null ? String(plannedSet.time_minutes) : '');
       setTimeSec(plannedSet.time_seconds != null ? String(plannedSet.time_seconds) : '');
       setDistance(plannedSet.distance != null ? String(plannedSet.distance) : '');
-      setRpe(''); // ---> ADDED: Clear RPE so prior values don't carry over into a new planned set
+      setRpe(''); 
     } else {
       setWeight('');
       setReps('');
       setTimeMin('');
       setTimeSec('');
       setDistance('');
-      setRpe(''); // ---> ADDED: Clear RPE state
+      setRpe('');
     }
   }, [activeExerciseIndex, currentSetIndex, plannedSet, editingSetIndex]);
+
+  // ⏱️ NEW: Saves total session duration to backend before navigating away
+  const handleFinalizeWorkout = async () => {
+    try {
+      await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration_seconds: elapsedSeconds })
+      });
+    } catch (error) {
+      console.error("Failed to update final session timestamp duration:", error);
+    }
+    navigate(`/workouts/${workoutId}`);
+  };
 
   if (!routine || !workoutId) {
     return <div style={{ textAlign: 'center', marginTop: '50px', color: '#888' }}>Loading session...</div>;
@@ -91,7 +127,7 @@ export default function FocusWorkout() {
       time_minutes: timeMin === '' ? 0 : Number(timeMin),
       time_seconds: timeSec === '' ? 0 : Number(timeSec),
       distance: distance === '' ? 0 : Number(distance),
-      rpe: rpe === '' ? null : Number(rpe) // ---> ADDED: Safely pass RPE decimal or null to database
+      rpe: rpe === '' ? null : Number(rpe)
     };
 
     try {
@@ -115,8 +151,7 @@ export default function FocusWorkout() {
             const updated = [...prev[activeExerciseIndex]];
             updated[editingSetIndex] = { 
               id: savedSet.id || currentCompletedSets[editingSetIndex].id, 
-              weight, reps, timeMin, timeSec, distance, 
-              rpe: rpe || null // ---> ADDED: Save editing state value locally
+              weight, reps, timeMin, timeSec, distance, rpe: rpe || null
             };
             return { ...prev, [activeExerciseIndex]: updated };
           });
@@ -125,13 +160,11 @@ export default function FocusWorkout() {
           setAllCompletedSets(prev => ({
             ...prev,
             [activeExerciseIndex]: [...(prev[activeExerciseIndex] || []), { 
-              id: savedSet.id, 
-              weight, reps, timeMin, timeSec, distance, 
-              rpe: rpe || null // ---> ADDED: Save logged state value locally
+              id: savedSet.id, weight, reps, timeMin, timeSec, distance, rpe: rpe || null
             }]
           }));
         }
-        setRpe(''); // ---> ADDED: Reset input field for next set
+        setRpe('');
       }
     } catch (error) {
       console.error("Failed to log/update set", error);
@@ -146,7 +179,7 @@ export default function FocusWorkout() {
     setTimeMin(setToEdit.timeMin || '');
     setTimeSec(setToEdit.timeSec || '');
     setDistance(setToEdit.distance || '');
-    setRpe(setToEdit.rpe || ''); // ---> ADDED: Populate the RPE input field with previous value
+    setRpe(setToEdit.rpe || ''); 
   };
 
   const handleCancelEdit = () => {
@@ -157,7 +190,7 @@ export default function FocusWorkout() {
     if (!isLastExercise) {
       setActiveExerciseIndex(activeExerciseIndex + 1);
     } else {
-      navigate(`/workouts/${workoutId}`);
+      handleFinalizeWorkout(); // ⏱️ Modified to store timer data
     }
   };
 
@@ -172,12 +205,28 @@ export default function FocusWorkout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '90vh', gap: '20px' }}>
       
-      {/* Top Header */}
+      {/* Top Header Group */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: '1.2rem', color: '#fff', margin: 0 }}>{routine.name}</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2 style={{ fontSize: '1.2rem', color: '#fff', margin: 0 }}>{routine.name}</h2>
+          
+          {/* ⏱️ NEW: Top Left Running Live Stopwatch Widget */}
+          <div style={{
+            backgroundColor: '#2d2d34',
+            color: '#10b981',
+            padding: '4px 8px',
+            borderRadius: '6px',
+            fontWeight: '700',
+            fontSize: '0.95rem',
+            fontFamily: 'monospace'
+          }}>
+            ⏱️ {formatTime(elapsedSeconds)}
+          </div>
+        </div>
+
         <button 
-          onClick={() => navigate(`/workouts/${workoutId}`)}
-          style={{ backgroundColor: 'transparent', color: '#ef4444', border: 'none', fontSize: '0.9rem', fontWeight: 'bold' }}
+          onClick={handleFinalizeWorkout} // ⏱️ Modified to store timer data
+          style={{ backgroundColor: 'transparent', color: '#ef4444', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
         >
           End Early
         </button>
@@ -216,7 +265,6 @@ export default function FocusWorkout() {
                   {renderCompletedSetText(set, activeExercise.tracking_type)} 
                 </span>
                 
-                {/* ---> ADDED: Display RPE Tag in Completed Sets Log if present */}
                 {set.rpe && (
                   <span style={{ color: '#eab308', fontSize: '0.85rem', background: '#322203', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
                     RPE {set.rpe}
@@ -277,7 +325,6 @@ export default function FocusWorkout() {
               </>
             )}
 
-            {/* ---> ADDED: Optional RPE Input Box (Stays visible across all exercise tracking types) */}
             <input 
               type="number" 
               placeholder="RPE" 

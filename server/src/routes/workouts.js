@@ -30,11 +30,11 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 2. GET /api/v1/workouts - Retrieve all sessions from the cloud (UNCHANGED)
+// 2. GET /api/v1/workouts - Retrieve all sessions from the cloud
 router.get('/', async (req, res) => {
   try {
     const queryText = `
-      SELECT id, name, started_at, completed_at, notes 
+      SELECT id, name, started_at, completed_at, duration_seconds, notes 
       FROM workout_logs 
       ORDER BY started_at DESC;
     `;
@@ -214,6 +214,63 @@ router.put('/:id/sets/:setId', async (req, res) => {
     return res.status(200).json(result.rows[0]);
   } catch (error) {
     console.error('Database Error in PUT /api/v1/workouts/:id/sets/:setId:', error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
+  }
+});
+
+// 6. DELETE /api/v1/workouts/:id - Delete a single workout session and all its associated sets
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Delete all dependent set logs first to prevent foreign key constraint errors
+    await db.query('DELETE FROM set_logs WHERE workout_log_id = $1;', [id]);
+
+    // 2. Delete the parent workout log entry
+    const result = await db.query('DELETE FROM workout_logs WHERE id = $1 RETURNING *;', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `Workout log with ID ${id} not found.` });
+    }
+
+    return res.status(200).json({ 
+      message: 'Workout log and all associated set logs deleted successfully.',
+      deletedWorkout: result.rows[0] 
+    });
+  } catch (error) {
+    console.error(`Database Error in DELETE /api/v1/workouts/${id}:`, error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
+  }
+});
+
+// 7. PATCH /api/v1/workouts/:id - Update workout session details (like duration and completion)
+router.patch('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { duration_seconds } = req.body;
+
+  try {
+    // Updates the duration and stamps the completion time simultaneously
+    const queryText = `
+      UPDATE workout_logs 
+      SET 
+        duration_seconds = $1,
+        completed_at = NOW()
+      WHERE id = $2
+      RETURNING *;
+    `;
+    
+    const result = await db.query(queryText, [
+      duration_seconds !== undefined ? Number(duration_seconds) : null, 
+      id
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `Workout log with ID ${id} not found.` });
+    }
+
+    return res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error(`Database Error in PATCH /api/v1/workouts/${id}:`, error);
     return res.status(500).json({ error: 'Internal Server Error.' });
   }
 });

@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
-const db = require('./src/db'); // Adjust this path to match your db connection file
+const db = require('.'); // Adjust this path to match your db connection file
 
 // Change 'dataset.csv' to the EXACT name of the file in your project folder
 const csvFilePath = path.join(__dirname, 'megaGymDataset.csv'); 

@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // Your database connection pool
+const db = require('../db'); 
 
 // GET /api/v1/routines
-// Fetches all routines and bundles their exercises in the correct order
+// Fetches all routines and bundles their exercises with the new JSON arrays
 router.get('/', async (req, res) => {
   try {
     const query = `
@@ -15,8 +15,9 @@ router.get('/', async (req, res) => {
             'exercise_id', e.id,
             'name', e.title,
             'sequence_order', re.sequence_order,
-            'target_sets', re.target_sets,
-            'target_reps', re.target_reps, -- ---> NEW: Added target_reps here <---
+            'tracking_type', e.tracking_type, -- ---> NEW: Fetches how to track it
+            'tags', re.tags,                  -- ---> NEW: Fetches custom tags
+            'sets', re.sets,                  -- ---> NEW: Fetches the detailed set array
             'short_description', e.short_description
           ) ORDER BY re.sequence_order ASC
         ) AS exercises
@@ -36,7 +37,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/v1/routines
-// Creates a new custom template, auto-generating new exercises if they don't exist yet
+// Creates a new custom template with dynamic set mapping
 router.post('/', async (req, res) => {
   const { name, exercises } = req.body;
 
@@ -47,9 +48,9 @@ router.post('/', async (req, res) => {
   const client = await db.connect(); 
 
   try {
-    await client.query('BEGIN'); // 1. Start transaction
+    await client.query('BEGIN'); 
 
-    // 2. Insert the parent routine
+    // 1. Insert the parent routine
     const routineQuery = `
       INSERT INTO routines (name) 
       VALUES ($1) 
@@ -58,50 +59,60 @@ router.post('/', async (req, res) => {
     const routineResult = await client.query(routineQuery, [name]);
     const newRoutine = routineResult.rows[0];
 
-    // 3. Prepare the insertion query for the join table
-    // ---> NEW: Added target_reps to the query string <---
+    // 2. Prepare the insertion query for the join table
     const routineExerciseQuery = `
-      INSERT INTO routine_exercises (routine_id, exercise_id, sequence_order, target_sets, target_reps)
+      INSERT INTO routine_exercises (routine_id, exercise_id, sequence_order, sets, tags)
       VALUES ($1, $2, $3, $4, $5); 
     `;
     
-    // 4. Loop through the exercises array
+    // 3. Loop through the exercises array
     for (let i = 0; i < exercises.length; i++) {
       const ex = exercises[i];
       let finalExerciseId = ex.exercise_id;
 
-      // DYNAMIC CHECK: If there is no exercise_id, it's a custom exercise!
+      // Check if it is a custom exercise
       if (!finalExerciseId) {
-        // ---> FIXED: Changed LOWER(name) to LOWER(title) to match new DB <---
         const checkExisting = await client.query(
           'SELECT id FROM exercises WHERE LOWER(title) = LOWER($1);', 
           [ex.name.trim()]
         );
 
         if (checkExisting.rows.length > 0) {
-          finalExerciseId = checkExisting.rows[0].id; // Use existing ID
+          finalExerciseId = checkExisting.rows[0].id; 
         } else {
-          // ---> FIXED: Changed (name) to (title) to match new DB <---
           const insertNewExercise = await client.query(
-            'INSERT INTO exercises (title) VALUES ($1) RETURNING id;', 
-            [ex.name.trim()]
+            'INSERT INTO exercises (title, tracking_type) VALUES ($1, $2) RETURNING id;', 
+            [ex.name.trim(), ex.tracking_type || 'weight_reps']
           );
-          finalExerciseId = insertNewExercise.rows[0].id; // Use the brand new ID
+          finalExerciseId = insertNewExercise.rows[0].id; 
         }
       }
 
+      // ---> THE FIX: The Update Logic <---
+      // Regardless of whether this exercise was just created or pulled from the library,
+      // force the master exercises table to update its tracking_type to match your dropdown!
+      if (finalExerciseId) {
+        await client.query(
+          'UPDATE exercises SET tracking_type = $1 WHERE id = $2;',
+          [ex.tracking_type || 'weight_reps', finalExerciseId]
+        );
+      }
+
+      // 4. Clean up the data for PostgreSQL
+      const setsJson = JSON.stringify(ex.sets || []); 
+      const tagsArray = ex.tags || [];
+
       // 5. Insert into the routine_exercises join table
-      // ---> NEW: Passed ex.target_reps into the query values <---
       await client.query(routineExerciseQuery, [
         newRoutine.id, 
         finalExerciseId, 
         i + 1, 
-        ex.target_sets || 3,
-        ex.target_reps || 10 // Fallback to 10 reps if empty
+        setsJson, 
+        tagsArray 
       ]);
     }
 
-    await client.query('COMMIT'); // Lock it all in!
+    await client.query('COMMIT'); 
     
     res.status(201).json({ 
       message: 'Template created successfully!', 
@@ -109,8 +120,16 @@ router.post('/', async (req, res) => {
     });
 
   } catch (error) {
-    await client.query('ROLLBACK'); // Wipe out everything if an error occurs
+    await client.query('ROLLBACK'); 
     console.error('Transaction Error in POST /api/v1/routines:', error);
+    
+    // ---> THE FIX: Catch the Postgres unique constraint violation (Code 23505) <---
+    if (error.code === '23505') {
+      return res.status(400).json({ 
+        error: `A workout template named "${name}" already exists. Please choose a unique name!` 
+      });
+    }
+
     res.status(500).json({ error: 'Failed to create template' });
   } finally {
     client.release();
@@ -126,10 +145,10 @@ router.delete('/:id', async (req, res) => {
   try {
     await client.query('BEGIN'); 
 
-    // 1. Delete the linked exercises first (Child records)
+    // Delete child records first
     await client.query('DELETE FROM routine_exercises WHERE routine_id = $1', [routineId]);
     
-    // 2. Delete the template itself (Parent record)
+    // Delete parent record
     await client.query('DELETE FROM routines WHERE id = $1', [routineId]);
 
     await client.query('COMMIT'); 

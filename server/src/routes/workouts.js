@@ -4,19 +4,25 @@ const db = require('../db'); // Import our database connection pool
 
 // 1. POST /api/v1/workouts - Create a workout session in the cloud
 router.post('/', async (req, res) => {
-  const { name } = req.body;
+  // ---> UPDATE: Destructure routine_id from the body so we can link templates to workouts
+  const { name, routine_id, notes } = req.body; 
 
   if (!name) {
     return res.status(400).json({ error: 'Workout name is required' });
   }
 
   try {
+    // ---> UPDATE: Insert the routine_id column
     const queryText = `
-      INSERT INTO workout_logs (name, notes) 
-      VALUES ($1, $2) 
-      RETURNING id, name, started_at, notes;
+      INSERT INTO workout_logs (name, routine_id, notes) 
+      VALUES ($1, $2, $3) 
+      RETURNING id, name, routine_id, started_at, notes;
     `;
-    const result = await db.query(queryText, [name, req.body.notes || null]);
+    const result = await db.query(queryText, [
+      name, 
+      routine_id || null, 
+      notes || null
+    ]);
     return res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Database Error in POST /api/v1/workouts:', error);
@@ -24,18 +30,15 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 2. GET /api/v1/workouts - Retrieve all sessions from the cloud
+// 2. GET /api/v1/workouts - Retrieve all sessions from the cloud (UNCHANGED)
 router.get('/', async (req, res) => {
   try {
-    // Senior Dev Standard: Sort by latest workout first using ORDER BY
     const queryText = `
       SELECT id, name, started_at, completed_at, notes 
       FROM workout_logs 
       ORDER BY started_at DESC;
     `;
     const result = await db.query(queryText);
-    
-    // Always return a 200 OK with an array, even if empty
     return res.status(200).json(result.rows);
   } catch (error) {
     console.error('Database Error in GET /api/v1/workouts:', error);
@@ -43,7 +46,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 3. GET /api/v1/workouts/:id - Retrieve a single workout WITH its sets from the cloud
+// 3. GET /api/v1/workouts/:id - Retrieve a single workout WITH its sets and tags from the cloud
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -57,21 +60,40 @@ router.get('/:id', async (req, res) => {
 
     const workout = workoutResult.rows[0];
 
-    // NEW: We use a JOIN here to merge the sets with the exercises table!
+    // ---> UPDATE: Joined workout_logs and routine_exercises to extract matching tags!
     const setsQuery = `
       SELECT 
-        sl.id, sl.set_number, sl.actual_weight_kg, sl.actual_reps, sl.rpe, sl.completed_at,
-        e.title AS exercise_name
+        sl.id, 
+        sl.set_number, 
+        sl.actual_weight_kg, 
+        sl.actual_reps, 
+        sl.time_minutes, 
+        sl.time_seconds, 
+        sl.distance, 
+        sl.rpe, 
+        sl.completed_at,
+        e.title AS exercise_name,
+        e.tracking_type,
+        re.tags -- ---> NEW: Pull template tags dynamically
       FROM set_logs sl
       JOIN exercises e ON sl.exercise_id = e.id
+      JOIN workout_logs wl ON sl.workout_log_id = wl.id -- ---> NEW: Join parent log to get its routine_id
+      LEFT JOIN routine_exercises re ON re.routine_id = wl.routine_id AND re.exercise_id = sl.exercise_id -- ---> NEW: Grab custom tags
       WHERE sl.workout_log_id = $1
       ORDER BY sl.id ASC;
     `;
     const setsResult = await db.query(setsQuery, [id]);
 
+    // ---> UPDATE: Clean set results to ensure tags default to [] (never null) 
+    // This keeps the React frontend from throwing type-errors on freestyle workouts.
+    const setsWithTags = setsResult.rows.map(row => ({
+      ...row,
+      tags: row.tags || []
+    }));
+
     return res.status(200).json({
       ...workout,
-      sets: setsResult.rows
+      sets: setsWithTags
     });
   } catch (error) {
     console.error(`Database Error in GET /api/v1/workouts/${id}:`, error);
@@ -79,30 +101,57 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 4. POST /api/v1/workouts/:id/sets - Log a set for a specific workout in the cloud
+// 4. POST /api/v1/workouts/:id/sets - Log a set for a specific workout (UNCHANGED)
 router.post('/:id/sets', async (req, res) => {
-  const { id } = req.params; // This is the workout_log_id
-  const { exercise_id, set_number, actual_weight_kg, actual_reps, rpe } = req.body;
+  const { id } = req.params;
+  const { 
+    exercise_id, 
+    set_number, 
+    actual_weight_kg, 
+    actual_reps, 
+    rpe, 
+    time_minutes, 
+    time_seconds, 
+    distance 
+  } = req.body;
 
-  // Validation Guard Clause
-  if (!exercise_id || !set_number || !actual_weight_kg || !actual_reps) {
-    return res.status(400).json({ error: 'exercise_id, set_number, actual_weight_kg, and actual_reps are required' });
+  if (!exercise_id || !set_number) {
+    return res.status(400).json({ error: 'exercise_id and set_number are required' });
   }
 
   try {
-    // Integrity Check: Does the parent workout exist?
     const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1;', [id]);
     if (workoutCheck.rows.length === 0) {
       return res.status(404).json({ error: `Cannot log set. Workout log ${id} does not exist.` });
     }
 
-    // Insert the new set record using parameterized query variables ($1, $2...)
     const queryText = `
-      INSERT INTO set_logs (workout_log_id, exercise_id, set_number, actual_weight_kg, actual_reps, rpe)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO set_logs (
+        workout_log_id, 
+        exercise_id, 
+        set_number, 
+        actual_weight_kg, 
+        actual_reps, 
+        rpe, 
+        time_minutes, 
+        time_seconds, 
+        distance
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *;
     `;
-    const values = [id, exercise_id, set_number, actual_weight_kg, actual_reps, rpe || null];
+    
+    const values = [
+      id, 
+      exercise_id, 
+      set_number, 
+      actual_weight_kg !== undefined ? actual_weight_kg : null, 
+      actual_reps !== undefined ? actual_reps : null, 
+      rpe || null,
+      time_minutes !== undefined ? time_minutes : null,
+      time_seconds !== undefined ? time_seconds : null,
+      distance !== undefined ? distance : null
+    ];
     
     const result = await db.query(queryText, values);
     return res.status(201).json(result.rows[0]);

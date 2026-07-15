@@ -59,7 +59,7 @@ export default function CreateTemplate() {
 
     let exerciseIdToSubmit = selectedExerciseId;
     let exerciseNameToSubmit = exerciseInput;
-    let trackingTypeToSubmit = 'weight_reps'; // Default for custom exercises
+    let trackingTypeToSubmit = 'weight_reps'; 
 
     const exactMatch = availableExercises.find(
       ex => ex.title.toLowerCase() === exerciseInput.trim().toLowerCase()
@@ -68,7 +68,6 @@ export default function CreateTemplate() {
     if (exactMatch) {
       exerciseIdToSubmit = exactMatch.id;
       exerciseNameToSubmit = exactMatch.title;
-      // ---> NEW: Grab the tracking_type from the database match
       trackingTypeToSubmit = exactMatch.tracking_type || 'weight_reps';
     }
 
@@ -77,8 +76,7 @@ export default function CreateTemplate() {
       { 
         exercise_id: exerciseIdToSubmit, 
         name: exerciseNameToSubmit, 
-        tracking_type: trackingTypeToSubmit, // ---> NEW: Save it to state
-        // Add default fields for all potential types so React doesn't complain about uncontrolled inputs
+        tracking_type: trackingTypeToSubmit, 
         sets: [{ weight: '', reps: '', time_minutes: '', time_seconds: '', distance: '' }],
         tags: [] 
       }
@@ -122,12 +120,12 @@ export default function CreateTemplate() {
     const newExercises = [...exercises];
     const previousSet = newExercises[exerciseIndex].sets.slice(-1)[0];
     newExercises[exerciseIndex].sets.push({
-    weight: previousSet ? previousSet.weight : '',
-    reps: previousSet ? previousSet.reps : '',
-    time_minutes: previousSet ? previousSet.time_minutes : '',
-    time_seconds: previousSet ? previousSet.time_seconds : '',
-    distance: previousSet ? previousSet.distance : ''
-  });
+      weight: previousSet ? previousSet.weight : '',
+      reps: previousSet ? previousSet.reps : '',
+      time_minutes: previousSet ? previousSet.time_minutes : '',
+      time_seconds: previousSet ? previousSet.time_seconds : '',
+      distance: previousSet ? previousSet.distance : ''
+    });
     setExercises(newExercises);
   };
 
@@ -155,14 +153,25 @@ export default function CreateTemplate() {
       return;
     }
 
+    // ---> FIX: Sanitize empty fields to 0 numbers right before posting
+    const sanitizedExercises = exercises.map(ex => ({
+      ...ex,
+      sets: ex.sets.map(set => ({
+        weight: set.weight === '' || set.weight == null ? 0 : Number(set.weight),
+        reps: set.reps === '' || set.reps == null ? 0 : Number(set.reps),
+        time_minutes: set.time_minutes === '' || set.time_minutes == null ? 0 : Number(set.time_minutes),
+        time_seconds: set.time_seconds === '' || set.time_seconds == null ? 0 : Number(set.time_seconds),
+        distance: set.distance === '' || set.distance == null ? 0 : Number(set.distance)
+      }))
+    }));
+
     try {
       const response = await fetch('http://localhost:3000/api/v1/routines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, exercises })
+        body: JSON.stringify({ name, exercises: sanitizedExercises }) // Send the sanitized list!
       });
 
-      // ---> THE FIX: Catch the error payload and show it to the user! <---
       if (response.ok) {
         navigate('/'); 
       } else {
@@ -202,13 +211,11 @@ export default function CreateTemplate() {
             {/* Exercise Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div>
-                {/* ---> NEW: Added a flex container to put the name and dropdown side-by-side <--- */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
                   <h3 style={{ margin: '0', fontSize: '1.1rem', color: '#fff' }}>
                     {exIndex + 1}. {ex.name} {!ex.exercise_id && <span style={{ color: '#007bff', fontSize: '0.8rem' }}>(Custom)</span>}
                   </h3>
                   
-                  {/* ---> NEW: The Dropdown to change types on the fly <--- */}
                   <select 
                     value={ex.tracking_type || 'weight_reps'}
                     onChange={(e) => handleChangeTrackingType(exIndex, e.target.value)}
@@ -259,7 +266,7 @@ export default function CreateTemplate() {
               >✕</button>
             </div>
 
-            {/* ---> NEW: The Big 5 Dynamic Set Rows (Fixed Overflow) <--- */}
+            {/* Dynamic Set Rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
               {ex.sets.map((set, setIndex) => (
                 <div key={setIndex} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -334,7 +341,7 @@ export default function CreateTemplate() {
         Save Template
       </button>
 
-      {/* Modal code remains completely unchanged below this point */}
+      {/* Exercise Selection Modal */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' }}>
           <div style={{ background: '#1e1e1e', width: '100%', maxWidth: '480px', maxHeight: '85vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #2d2d2d' }}>

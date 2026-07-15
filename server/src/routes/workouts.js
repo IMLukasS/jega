@@ -161,4 +161,61 @@ router.post('/:id/sets', async (req, res) => {
   }
 });
 
+// 5. PUT /api/v1/workouts/:id/sets/:setId - Update an already logged set
+router.put('/:id/sets/:setId', async (req, res) => {
+  const { id, setId } = req.params;
+  const { 
+    actual_weight_kg, 
+    actual_reps, 
+    rpe, 
+    time_minutes, 
+    time_seconds, 
+    distance 
+  } = req.body;
+
+  try {
+    // 1. Double check that the parent workout log exists
+    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1;', [id]);
+    if (workoutCheck.rows.length === 0) {
+      return res.status(404).json({ error: `Workout log ${id} does not exist.` });
+    }
+
+    // 2. Perform the update query on the specific set row
+    const queryText = `
+      UPDATE set_logs 
+      SET 
+        actual_weight_kg = $1, 
+        actual_reps = $2, 
+        rpe = $3, 
+        time_minutes = $4, 
+        time_seconds = $5, 
+        distance = $6
+      WHERE id = $7 AND workout_log_id = $8
+      RETURNING *;
+    `;
+    
+    const values = [
+      actual_weight_kg !== undefined ? actual_weight_kg : null, 
+      actual_reps !== undefined ? actual_reps : null, 
+      rpe || null,
+      time_minutes !== undefined ? time_minutes : null,
+      time_seconds !== undefined ? time_seconds : null,
+      distance !== undefined ? distance : null,
+      setId,
+      id
+    ];
+    
+    const result = await db.query(queryText, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `Set log with ID ${setId} not found under this workout.` });
+    }
+
+    return res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error('Database Error in PUT /api/v1/workouts/:id/sets/:setId:', error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
+  }
+});
+
 module.exports = router;

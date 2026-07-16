@@ -53,18 +53,29 @@ export default function TemplatesPage() {
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <button 
+  
+            {/* ✏️ NEW: Edit Template Button */}
+            <Link 
+                to={`/edit-template/${routine.id}`} 
+                state={{ templateToEdit: routine }} 
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.2rem', textDecoration: 'none' }}
+            >
+                ✏️
+            </Link>
+
+            <button 
                 onClick={() => handleDeleteTemplate(routine.id)}
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}
-              >
+            >
                 🗑️
-              </button>
-              <Link 
+            </button>
+            
+            <Link 
                 to={`/focus/${routine.id}`} 
                 style={{ backgroundColor: '#10b981', color: '#fff', padding: '8px 16px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold' }}
-              >
+            >
                 Start
-              </Link>
+            </Link>
             </div>
           </div>
         ))}

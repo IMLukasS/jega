@@ -18,6 +18,9 @@ function App() {
         <Route path="/workouts/:id" element={<WorkoutDetail />} />
         <Route path="/focus/:routineId" element={<FocusWorkout />} />
         <Route path="/create-template" element={<CreateTemplate />} />
+        
+        {/* ✏️ NEW: The Edit Template route using the same multi-purpose builder */}
+        <Route path="/edit-template/:id" element={<CreateTemplate />} />
       </Routes>
     </BrowserRouter>
   )

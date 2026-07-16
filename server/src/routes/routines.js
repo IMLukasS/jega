@@ -136,6 +136,97 @@ router.post('/', async (req, res) => {
   }
 });
 
+// PUT /api/v1/routines/:id
+// Updates an existing template and its mapped exercises
+router.put('/:id', async (req, res) => {
+  const routineId = req.params.id;
+  const { name, exercises } = req.body;
+
+  if (!name || !exercises || exercises.length === 0) {
+    return res.status(400).json({ error: 'Routine name and at least one exercise are required.' });
+  }
+
+  const client = await db.connect(); 
+
+  try {
+    await client.query('BEGIN'); 
+
+    // 1. Update the parent routine name
+    const routineResult = await client.query(
+      'UPDATE routines SET name = $1 WHERE id = $2 RETURNING id, name;', 
+      [name, routineId]
+    );
+
+    if (routineResult.rows.length === 0) {
+      throw new Error('Routine not found');
+    }
+
+    // 2. Wipe the old exercises from the join table
+    await client.query('DELETE FROM routine_exercises WHERE routine_id = $1', [routineId]);
+
+    // 3. Re-insert the new/updated exercises (Identical logic to your POST route)
+    const routineExerciseQuery = `
+      INSERT INTO routine_exercises (routine_id, exercise_id, sequence_order, sets, tags)
+      VALUES ($1, $2, $3, $4, $5); 
+    `;
+    
+    for (let i = 0; i < exercises.length; i++) {
+      const ex = exercises[i];
+      // Note: React might pass exercise_id or just id depending on how the frontend maps it
+      let finalExerciseId = ex.exercise_id || ex.id; 
+
+      if (!finalExerciseId) {
+        const checkExisting = await client.query(
+          'SELECT id FROM exercises WHERE LOWER(title) = LOWER($1);', 
+          [ex.name.trim()]
+        );
+
+        if (checkExisting.rows.length > 0) {
+          finalExerciseId = checkExisting.rows[0].id; 
+        } else {
+          const insertNewExercise = await client.query(
+            'INSERT INTO exercises (title, tracking_type) VALUES ($1, $2) RETURNING id;', 
+            [ex.name.trim(), ex.tracking_type || 'weight_reps']
+          );
+          finalExerciseId = insertNewExercise.rows[0].id; 
+        }
+      }
+
+      if (finalExerciseId) {
+        await client.query(
+          'UPDATE exercises SET tracking_type = $1 WHERE id = $2;',
+          [ex.tracking_type || 'weight_reps', finalExerciseId]
+        );
+      }
+
+      const setsJson = JSON.stringify(ex.sets || []); 
+      const tagsArray = ex.tags || [];
+
+      await client.query(routineExerciseQuery, [
+        routineId, 
+        finalExerciseId, 
+        i + 1, 
+        setsJson, 
+        tagsArray 
+      ]);
+    }
+
+    await client.query('COMMIT'); 
+    res.status(200).json({ message: 'Template updated successfully!' });
+
+  } catch (error) {
+    await client.query('ROLLBACK'); 
+    console.error('Transaction Error in PUT /api/v1/routines:', error);
+    
+    if (error.code === '23505') {
+      return res.status(400).json({ error: `A workout template named "${name}" already exists.` });
+    }
+    res.status(500).json({ error: 'Failed to update template' });
+  } finally {
+    client.release();
+  }
+});
+
 // DELETE /api/v1/routines/:id
 // Deletes a template and all its associated exercise links
 router.delete('/:id', async (req, res) => {

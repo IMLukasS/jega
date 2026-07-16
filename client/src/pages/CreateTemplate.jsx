@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom'; // 💡 Added useParams and useLocation
 
 export default function CreateTemplate() {
   const navigate = useNavigate();
+  const { id } = useParams(); // 💡 Captures the template ID from the URL if editing
+  const location = useLocation();
+
+  // 💡 Check if we're editing based on route params and passed location state
+  const templateToEdit = location.state?.templateToEdit;
+  const isEditMode = !!id && !!templateToEdit;
   
   const [name, setName] = useState('');
   const [exercises, setExercises] = useState([]); 
@@ -18,6 +24,30 @@ export default function CreateTemplate() {
   const [selectedBodyPart, setSelectedBodyPart] = useState('');
   const [selectedEquipment, setSelectedEquipment] = useState('');
   const [expandedExerciseId, setExpandedExerciseId] = useState(null);
+
+  // 💡 NEW: Pre-populate form state if in Edit Mode
+  useEffect(() => {
+    if (isEditMode && templateToEdit) {
+      setName(templateToEdit.name);
+      
+      // Convert database structure to match form state structure
+      const formattedExercises = templateToEdit.exercises.map(ex => ({
+        exercise_id: ex.exercise_id || ex.id,
+        name: ex.name,
+        tracking_type: ex.tracking_type || 'weight_reps',
+        tags: ex.tags || [],
+        // Safely convert numerical 0s back into friendly empty strings for inputs
+        sets: (ex.sets || []).map(set => ({
+          weight: set.weight !== 0 && set.weight != null ? String(set.weight) : '',
+          reps: set.reps !== 0 && set.reps != null ? String(set.reps) : '',
+          time_minutes: set.time_minutes !== 0 && set.time_minutes != null ? String(set.time_minutes) : '',
+          time_seconds: set.time_seconds !== 0 && set.time_seconds != null ? String(set.time_seconds) : '',
+          distance: set.distance !== 0 && set.distance != null ? String(set.distance) : ''
+        }))
+      }));
+      setExercises(formattedExercises);
+    }
+  }, [isEditMode, templateToEdit]);
 
   useEffect(() => {
     if (isModalOpen && availableExercises.length === 0) {
@@ -90,16 +120,13 @@ export default function CreateTemplate() {
     setExercises(exercises.filter((_, index) => index !== indexToRemove));
   };
 
-  // --- NEW: Reorder function ---
   const handleMoveExercise = (index, direction) => {
-    // Prevent moving the first item up, or the last item down
     if (direction === 'up' && index === 0) return;
     if (direction === 'down' && index === exercises.length - 1) return;
 
     const newExercises = [...exercises];
     const swapIndex = direction === 'up' ? index - 1 : index + 1;
 
-    // Swap the elements
     const temp = newExercises[index];
     newExercises[index] = newExercises[swapIndex];
     newExercises[swapIndex] = temp;
@@ -159,6 +186,7 @@ export default function CreateTemplate() {
     setExercises(newExercises);
   };
 
+  // 💡 MODIFIED: Dynamically targets PUT (update) or POST (create)
   const handleSaveTemplate = async () => {
     if (!name.trim() || exercises.length === 0) {
       alert("Please provide a name and at least one exercise.");
@@ -171,7 +199,6 @@ export default function CreateTemplate() {
       return;
     }
 
-    // ---> FIX: Sanitize empty fields to 0 numbers right before posting
     const sanitizedExercises = exercises.map(ex => ({
       ...ex,
       sets: ex.sets.map(set => ({
@@ -183,11 +210,17 @@ export default function CreateTemplate() {
       }))
     }));
 
+    // 💡 Toggle properties based on our current mode
+    const url = isEditMode 
+      ? `http://localhost:3000/api/v1/routines/${id}` 
+      : 'http://localhost:3000/api/v1/routines';
+    const method = isEditMode ? 'PUT' : 'POST';
+
     try {
-      const response = await fetch('http://localhost:3000/api/v1/routines', {
-        method: 'POST',
+      const response = await fetch(url, {
+        method: method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, exercises: sanitizedExercises }) // Send the sanitized list!
+        body: JSON.stringify({ name, exercises: sanitizedExercises }) 
       });
 
       if (response.ok) {
@@ -211,7 +244,8 @@ export default function CreateTemplate() {
         >
           ← Back to Workouts
         </button>
-        <h1>Create Workout</h1>
+        {/* 💡 Dynamic Page Title */}
+        <h1>{isEditMode ? 'Edit Workout Template' : 'Create Workout'}</h1>
       </header>
 
       <div style={{ marginBottom: '20px' }}>
@@ -278,32 +312,30 @@ export default function CreateTemplate() {
                 </div>
               </div>
 
-              {/* NEW CODE: Reorder and Delete Controls */}
-<div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-  {/* Only show UP arrow if it's not the first item */}
-  {exIndex > 0 && (
-    <button 
-      onClick={() => handleMoveExercise(exIndex, 'up')}
-      title="Move Up"
-      style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '4px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-    >↑</button>
-  )}
-  
-  {/* Only show DOWN arrow if it's not the last item */}
-  {exIndex < exercises.length - 1 && (
-    <button 
-      onClick={() => handleMoveExercise(exIndex, 'down')}
-      title="Move Down"
-      style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '4px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-    >↓</button>
-  )}
+              {/* Reorder and Delete Controls */}
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {exIndex > 0 && (
+                  <button 
+                    onClick={() => handleMoveExercise(exIndex, 'up')}
+                    title="Move Up"
+                    style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '4px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                  >↑</button>
+                )}
+                
+                {exIndex < exercises.length - 1 && (
+                  <button 
+                    onClick={() => handleMoveExercise(exIndex, 'down')}
+                    title="Move Down"
+                    style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '4px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                  >↓</button>
+                )}
 
-  <button 
-    onClick={() => handleRemoveExercise(exIndex)}
-    title="Remove Exercise"
-    style={{ background: 'transparent', color: '#ef4444', border: 'none', fontSize: '1.2rem', cursor: 'pointer', marginLeft: '4px' }}
-  >✕</button>
-</div>
+                <button 
+                  onClick={() => handleRemoveExercise(exIndex)}
+                  title="Remove Exercise"
+                  style={{ background: 'transparent', color: '#ef4444', border: 'none', fontSize: '1.2rem', cursor: 'pointer', marginLeft: '4px' }}
+                >✕</button>
+              </div>
             </div>
 
             {/* Dynamic Set Rows */}
@@ -374,11 +406,12 @@ export default function CreateTemplate() {
         >Add</button>
       </div>
 
+      {/* 💡 Dynamic Main Button Text */}
       <button 
         onClick={handleSaveTemplate}
         style={{ width: '100%', padding: '20px', background: '#4ade80', color: '#111', fontSize: '1.2rem', fontWeight: 'bold', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
       >
-        Save Template
+        {isEditMode ? 'Save Changes' : 'Save Template'}
       </button>
 
       {/* Exercise Selection Modal */}

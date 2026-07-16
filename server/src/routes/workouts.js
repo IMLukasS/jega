@@ -72,13 +72,13 @@ router.get('/:id', async (req, res) => {
         sl.distance, 
         sl.rpe, 
         sl.completed_at,
-        e.title AS exercise_name,
-        e.tracking_type,
-        re.tags -- ---> NEW: Pull template tags dynamically
+        COALESCE(e.title, 'Freestyle Exercise') AS exercise_name, -- 💡 Fallback text if exercise doesn't exist
+        COALESCE(e.tracking_type, 'weight_reps') AS tracking_type,
+        re.tags
       FROM set_logs sl
-      JOIN exercises e ON sl.exercise_id = e.id
-      JOIN workout_logs wl ON sl.workout_log_id = wl.id -- ---> NEW: Join parent log to get its routine_id
-      LEFT JOIN routine_exercises re ON re.routine_id = wl.routine_id AND re.exercise_id = sl.exercise_id -- ---> NEW: Grab custom tags
+      LEFT JOIN exercises e ON sl.exercise_id = e.id -- 💡 Changed from JOIN to LEFT JOIN
+      JOIN workout_logs wl ON sl.workout_log_id = wl.id 
+      LEFT JOIN routine_exercises re ON re.routine_id = wl.routine_id AND re.exercise_id = sl.exercise_id 
       WHERE sl.workout_log_id = $1
       ORDER BY sl.id ASC;
     `;

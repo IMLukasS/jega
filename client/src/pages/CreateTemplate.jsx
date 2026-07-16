@@ -89,6 +89,24 @@ export default function CreateTemplate() {
   const handleRemoveExercise = (indexToRemove) => {
     setExercises(exercises.filter((_, index) => index !== indexToRemove));
   };
+
+  // --- NEW: Reorder function ---
+  const handleMoveExercise = (index, direction) => {
+    // Prevent moving the first item up, or the last item down
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === exercises.length - 1) return;
+
+    const newExercises = [...exercises];
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+
+    // Swap the elements
+    const temp = newExercises[index];
+    newExercises[index] = newExercises[swapIndex];
+    newExercises[swapIndex] = temp;
+
+    setExercises(newExercises);
+  };
+
   const handleChangeTrackingType = (exerciseIndex, newType) => {
     const newExercises = [...exercises];
     newExercises[exerciseIndex].tracking_type = newType;
@@ -260,10 +278,32 @@ export default function CreateTemplate() {
                 </div>
               </div>
 
-              <button 
-                onClick={() => handleRemoveExercise(exIndex)}
-                style={{ background: 'transparent', color: '#ef4444', border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}
-              >✕</button>
+              {/* NEW CODE: Reorder and Delete Controls */}
+<div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+  {/* Only show UP arrow if it's not the first item */}
+  {exIndex > 0 && (
+    <button 
+      onClick={() => handleMoveExercise(exIndex, 'up')}
+      title="Move Up"
+      style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '4px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+    >↑</button>
+  )}
+  
+  {/* Only show DOWN arrow if it's not the last item */}
+  {exIndex < exercises.length - 1 && (
+    <button 
+      onClick={() => handleMoveExercise(exIndex, 'down')}
+      title="Move Down"
+      style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '4px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+    >↓</button>
+  )}
+
+  <button 
+    onClick={() => handleRemoveExercise(exIndex)}
+    title="Remove Exercise"
+    style={{ background: 'transparent', color: '#ef4444', border: 'none', fontSize: '1.2rem', cursor: 'pointer', marginLeft: '4px' }}
+  >✕</button>
+</div>
             </div>
 
             {/* Dynamic Set Rows */}

@@ -9,7 +9,6 @@ export default function Dashboard() {
   const [newWorkoutName, setNewWorkoutName] = useState("");
 
   useEffect(() => {
-    // Fetch all workout records to feed into the consistency grid
     fetch('http://localhost:3000/api/v1/workouts')
       .then((res) => res.json())
       .then((data) => {
@@ -19,7 +18,6 @@ export default function Dashboard() {
       .catch((err) => console.error('Error fetching history:', err));
   }, []);
 
-  // --- NEW: Trigger our backend DELETE endpoint ---
   const handleDeleteWorkout = async (workoutId) => {
     try {
       const response = await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
@@ -27,8 +25,6 @@ export default function Dashboard() {
       });
 
       if (!response.ok) throw new Error("Failed to delete the workout record.");
-
-      // Instantly remove it from state so the calendar cell updates
       setWorkouts((prev) => prev.filter((w) => w.id !== workoutId));
     } catch (error) {
       console.error('Deletion error:', error);
@@ -36,26 +32,39 @@ export default function Dashboard() {
     }
   };
 
-  const handleCreateFreestyle = (e) => {
-    e.preventDefault();
-    if (!newWorkoutName.trim()) return;
+  // ⏱️ NEW: Calculate Rolling 7-Day Stats dynamically
+  const getWeeklyStats = () => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    // Filter workouts from the last 7 days
+    const weeklyWorkouts = workouts.filter(w => {
+      if (!w.started_at) return false;
+      const wDate = new Date(w.started_at);
+      return wDate >= sevenDaysAgo && wDate <= now;
+    });
 
-    fetch('http://localhost:3000/api/v1/workouts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newWorkoutName })
-    })
-      .then((res) => res.json())
-      .then((newWorkout) => {
-        setWorkouts([newWorkout, ...workouts]);
-        setNewWorkoutName("");
-        // Instantly throw them into the active workout tracking room
-        navigate(`/focus/freestyle`, { state: { workoutId: newWorkout.id, name: newWorkout.name } });
-      })
-      .catch((err) => console.error('Error starting freestyle:', err));
+    // Sum up duration
+    const totalSeconds = weeklyWorkouts.reduce((sum, w) => sum + (w.duration_seconds || 0), 0);
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+
+    let formattedTime = "";
+    if (hrs > 0) {
+      formattedTime = `${hrs}h ${mins}m`;
+    } else {
+      formattedTime = `${mins}m`;
+    }
+
+    return {
+      count: weeklyWorkouts.length,
+      time: formattedTime
+    };
   };
 
   if (loading) return <p style={{ color: '#888', padding: '20px' }}>Loading Dashboard...</p>;
+
+  const stats = getWeeklyStats();
 
   return (
     <div className="app-container">
@@ -65,26 +74,34 @@ export default function Dashboard() {
       </header>
 
       {/* Modern High-Level Navigation Portal Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', marginBottom: '20px' }}>
         <Link to="/templates" style={{ 
-        background: '#2d2d34', padding: '20px', borderRadius: '12px', textDecoration: 'none', color: '#fff' 
+          background: '#2d2d34', padding: '20px', borderRadius: '12px', textDecoration: 'none', color: '#fff', display: 'block' 
         }}>
-        <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem' }}>🏋️‍♂️ My Workouts</h3>
-        <p style={{ margin: 0, fontSize: '0.8rem', color: '#a1a1aa' }}>Launch or design workouts</p>
+          <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem' }}>🏋️‍♂️ My Workouts</h3>
+          <p style={{ margin: 0, fontSize: '0.8rem', color: '#a1a1aa' }}>Launch or design workouts</p>
         </Link>
-        
-        <div style={{ background: '#2d2d34', padding: '20px', borderRadius: '12px', color: '#fff' }}>
-          <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem' }}>⏱️ Freestyle Session</h3>
-          <form onSubmit={handleCreateFreestyle} style={{ display: 'flex', gap: '8px' }}>
-            <input 
-              type="text" 
-              placeholder="Quick session name..." 
-              value={newWorkoutName}
-              onChange={(e) => setNewWorkoutName(e.target.value)}
-              style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #444', background: '#1e1e24', color: '#fff' }}
-            />
-            <button type="submit" style={{ background: '#10b981', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Start</button>
-          </form>
+      </div>
+
+      {/* 📊 NEW: Weekly Stats Summary Panel */}
+      <div style={{ 
+        background: '#2d2d34', 
+        padding: '16px 20px', 
+        borderRadius: '12px', 
+        marginBottom: '24px', 
+        display: 'flex', 
+        justifyContent: 'space-around', 
+        alignItems: 'center', 
+        border: '1px solid #3e3e4a' 
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <span style={{ display: 'block', fontSize: '0.75rem', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Past 7 Days</span>
+          <strong style={{ fontSize: '1.5rem', color: '#10b981' }}>{stats.count} Workout{stats.count !== 1 ? 's' : ''} 🔥</strong>
+        </div>
+        <div style={{ height: '30px', width: '1px', background: '#3e3e4a' }} />
+        <div style={{ textAlign: 'center' }}>
+          <span style={{ display: 'block', fontSize: '0.75rem', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Total Time</span>
+          <strong style={{ fontSize: '1.5rem', color: '#60a5fa' }}>{stats.time} ⏱️</strong>
         </div>
       </div>
 

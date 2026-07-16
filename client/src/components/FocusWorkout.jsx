@@ -1,14 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom'; // 💡 Added useLocation
 
 export default function FocusWorkout() {
   const { routineId } = useParams(); 
   const navigate = useNavigate();
+  const location = useLocation(); // 💡 Access state passed from the home screen
 
   const [routine, setRoutine] = useState(null);
   const [workoutId, setWorkoutId] = useState(null); 
-  const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
+const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
+    const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
+    if (savedSession && savedSession.routineId === routineId && savedSession.activeIndex !== undefined) {
+      return savedSession.activeIndex;
+    }
+    return 0;
+  });
   
+  // 🏃‍♂️ NEW: Dynamic tracking style for Freestyle Mode (default to lifting)
+  const [freestyleTrackingType, setFreestyleTrackingType] = useState('weight_reps');
+
   // States to handle all "Big 5" input types
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
@@ -17,12 +27,37 @@ export default function FocusWorkout() {
   const [distance, setDistance] = useState('');
   const [rpe, setRpe] = useState('');
 
-  const [allCompletedSets, setAllCompletedSets] = useState({});
+    const [allCompletedSets, setAllCompletedSets] = useState(() => {
+    const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
+    if (savedSession && savedSession.routineId === routineId && savedSession.completedSets) {
+      return savedSession.completedSets;
+    }
+    return {};
+  });
   const [editingSetIndex, setEditingSetIndex] = useState(null);
   const sessionStarted = useRef(false);
 
-  // ⏱️ NEW: Elapsed Time Stopwatch State
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+// ⏱️ NEW: Elapsed Time Stopwatch State (Persistent)
+  const [elapsedSeconds, setElapsedSeconds] = useState(() => {
+    const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
+    if (savedSession && savedSession.startTime) {
+      return Math.floor((Date.now() - savedSession.startTime) / 1000);
+    }
+    return 0;
+  });
+
+  // 💾 NEW: Autosave UI state to localStorage
+  useEffect(() => {
+    if (!workoutId) return; // Wait until the session is fully established
+
+    const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
+    if (savedSession) {
+      // Update the cache with your current UI progress
+      savedSession.completedSets = allCompletedSets;
+      savedSession.activeIndex = activeExerciseIndex;
+      localStorage.setItem('activeWorkoutSession', JSON.stringify(savedSession));
+    }
+  }, [allCompletedSets, activeExerciseIndex, workoutId]);
 
   // ⏱️ NEW: Running interval tracking side-effect
   useEffect(() => {
@@ -48,6 +83,49 @@ export default function FocusWorkout() {
     if (sessionStarted.current) return;
     sessionStarted.current = true;
 
+    const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
+    const isResuming = savedSession && savedSession.routineId === routineId;
+
+    // 🚀 Handle Freestyle Mode
+    if (routineId === 'freestyle') {
+      const freestyleMock = {
+        name: location.state?.customName || 'Freestyle Workout',
+        exercises: [{
+          id: 'c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7', 
+          exercise_id: 'c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7',
+          name: 'Freestyle Exercise',
+          tracking_type: freestyleTrackingType,
+          sets: []
+        }]
+      };
+      setRoutine(freestyleMock);
+
+      if (isResuming) {
+        setWorkoutId(savedSession.workoutId);
+      } else if (location.state?.existingWorkoutId) {
+        setWorkoutId(location.state.existingWorkoutId);
+        localStorage.setItem('activeWorkoutSession', JSON.stringify({ 
+          workoutId: location.state.existingWorkoutId, routineId, startTime: Date.now() 
+        }));
+      } else {
+        fetch('http://localhost:3000/api/v1/workouts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Freestyle Session', routine_id: null })
+        })
+        .then((res) => res.json())
+        .then((sessionData) => {
+          setWorkoutId(sessionData.id);
+          localStorage.setItem('activeWorkoutSession', JSON.stringify({ 
+            workoutId: sessionData.id, routineId, startTime: Date.now() 
+          }));
+        })
+        .catch((err) => console.error("Error starting freestyle:", err));
+      }
+      return; 
+    }
+
+    // 📋 Standard Template Mode
     fetch('http://localhost:3000/api/v1/routines')
     .then((res) => res.json())
     .then(async (data) => {
@@ -55,21 +133,33 @@ export default function FocusWorkout() {
         if (!selectedRoutine) return;
         setRoutine(selectedRoutine);
 
-        const startSessionRes = await fetch('http://localhost:3000/api/v1/workouts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-              name: `${selectedRoutine.name} Session`,
-              routine_id: selectedRoutine.id 
-          })
-        });
-        
-        const sessionData = await startSessionRes.json();
-        setWorkoutId(sessionData.id);
+        if (isResuming) {
+          // Resume existing session, do not make a POST request!
+          setWorkoutId(savedSession.workoutId);
+        } else {
+          // Create new session
+          const startSessionRes = await fetch('http://localhost:3000/api/v1/workouts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: `${selectedRoutine.name} Session`, routine_id: selectedRoutine.id })
+          });
+          const sessionData = await startSessionRes.json();
+          setWorkoutId(sessionData.id);
+          
+          // Save to local storage for crash protection
+          localStorage.setItem('activeWorkoutSession', JSON.stringify({ 
+            workoutId: sessionData.id, routineId, startTime: Date.now() 
+          }));
+        }
     });
-  }, [routineId]);
+  }, [routineId, location.state]);
 
+  // Dynamically intercept and swap the active exercise's style when in Freestyle mode
   const activeExercise = routine?.exercises?.[activeExerciseIndex];
+  if (activeExercise && routineId === 'freestyle') {
+    activeExercise.tracking_type = freestyleTrackingType;
+  }
+
   const currentCompletedSets = allCompletedSets[activeExerciseIndex] || [];
   const currentSetIndex = currentCompletedSets.length;
   const plannedSet = activeExercise?.sets?.[currentSetIndex];
@@ -92,10 +182,12 @@ export default function FocusWorkout() {
       setDistance('');
       setRpe('');
     }
-  }, [activeExerciseIndex, currentSetIndex, plannedSet, editingSetIndex]);
+  }, [activeExerciseIndex, currentSetIndex, plannedSet, editingSetIndex, freestyleTrackingType]); // Added tracking type to reset fields safely
 
-  // ⏱️ NEW: Saves total session duration to backend before navigating away
   const handleFinalizeWorkout = async () => {
+    // 🧹 NEW: Clear the active session so it doesn't accidentally resume next time
+    localStorage.removeItem('activeWorkoutSession');
+
     try {
       await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
         method: 'PATCH',
@@ -190,7 +282,7 @@ export default function FocusWorkout() {
     if (!isLastExercise) {
       setActiveExerciseIndex(activeExerciseIndex + 1);
     } else {
-      handleFinalizeWorkout(); // ⏱️ Modified to store timer data
+      handleFinalizeWorkout();
     }
   };
 
@@ -210,7 +302,7 @@ export default function FocusWorkout() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <h2 style={{ fontSize: '1.2rem', color: '#fff', margin: 0 }}>{routine.name}</h2>
           
-          {/* ⏱️ NEW: Top Left Running Live Stopwatch Widget */}
+          {/* ⏱️ Top Left Running Live Stopwatch Widget */}
           <div style={{
             backgroundColor: '#2d2d34',
             color: '#10b981',
@@ -225,7 +317,7 @@ export default function FocusWorkout() {
         </div>
 
         <button 
-          onClick={handleFinalizeWorkout} // ⏱️ Modified to store timer data
+          onClick={handleFinalizeWorkout}
           style={{ backgroundColor: 'transparent', color: '#ef4444', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
         >
           End Early
@@ -292,6 +384,34 @@ export default function FocusWorkout() {
             : activeExercise.tracking_type === 'time_weight' ? ` ${plannedSet.weight || 0} lbs for ${plannedSet.time_minutes || 0}m ${plannedSet.time_seconds || 0}s`
             : activeExercise.tracking_type === 'distance_time' ? ` ${plannedSet.distance || 0} mi in ${plannedSet.time_minutes || 0}m ${plannedSet.time_seconds || 0}s`
             : ` ${plannedSet.weight || 0} lbs × ${plannedSet.reps || 0} reps`}
+          </div>
+        )}
+
+        {/* 🏃‍♂️ Dynamic Style Switcher (Only visible during Freestyle sessions) */}
+        {routineId === 'freestyle' && (
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', justifyContent: 'center' }}>
+            {['weight_reps', 'time', 'distance_time'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setFreestyleTrackingType(type)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #2d2d2d',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  backgroundColor: freestyleTrackingType === type ? '#2563eb' : '#111',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s'
+                }}
+              >
+                {type === 'weight_reps' && '🏋️‍♂️ Lifting'}
+                {type === 'time' && '⏱️ Time'}
+                {type === 'distance_time' && '🏃‍♂️ Running/Cardio'}
+              </button>
+            ))}
           </div>
         )}
 

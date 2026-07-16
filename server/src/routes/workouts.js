@@ -275,4 +275,31 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// 8. DELETE /api/v1/workouts/:id/sets/:setId - Delete a specific set from a workout
+router.delete('/:id/sets/:setId', async (req, res) => {
+  const { id, setId } = req.params;
+
+  try {
+    const queryText = `
+      DELETE FROM set_logs 
+      WHERE id = $1 AND workout_log_id = $2 
+      RETURNING *;
+    `;
+    // Using db.query and set_logs to match the rest of your file!
+    const result = await db.query(queryText, [setId, id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: `Set with ID ${setId} not found in workout ${id}.` });
+    }
+
+    return res.status(200).json({ 
+      message: 'Set deleted successfully', 
+      deletedSet: result.rows[0] 
+    });
+  } catch (error) {
+    console.error('Database Error in DELETE /api/v1/workouts/:id/sets/:setId:', error);
+    return res.status(500).json({ error: 'Internal Server Error.' });
+  }
+});
+
 module.exports = router;

@@ -142,6 +142,31 @@ export default function WorkoutDetail() {
     }
   };
 
+  // 🗑️ NEW: Delete a specific set from history
+  const handleDeleteHistorySet = async (setId) => {
+    const isSure = window.confirm("Are you sure you want to delete this set?");
+    if (!isSure) return;
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/v1/workouts/${id}/sets/${setId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Instantly remove it from the UI
+        setWorkout(prev => ({
+          ...prev,
+          sets: prev.sets.filter(s => s.id !== setId)
+        }));
+        setEditingSetId(null); // Close the edit drawer
+      } else {
+        alert("Failed to delete the set. Make sure the backend is running.");
+      }
+    } catch (error) {
+      console.error("Error deleting set:", error);
+    }
+  };
+
   const startInlineEdit = (set) => {
     setEditingSetId(set.id);
     setEditWeight(set.actual_weight_kg ?? '');
@@ -156,12 +181,25 @@ export default function WorkoutDetail() {
   if (error) return <div className="app-container"><p style={{ color: '#ff4444' }}>{error}</p></div>;
   if (!workout) return <div className="app-container"><p>Workout not found.</p></div>;
 
-  const groupedSets = workout.sets ? workout.sets.reduce((acc, set) => {
+  const sortedSets = workout.sets 
+    ? [...workout.sets].sort((a, b) => {
+        // Sort by timestamp if available, fallback to the database ID
+        if (a.created_at && b.created_at) return new Date(a.created_at) - new Date(b.created_at);
+        return a.id > b.id ? 1 : -1;
+      })
+    : [];
+
+  // Group the perfectly sorted sets. The object will now preserve your actual workout flow.
+  const groupedSets = sortedSets.reduce((acc, set) => {
     const name = set.exercise_name || 'Unknown Exercise';
     if (!acc[name]) acc[name] = [];
+    
+    // Sort sets internally by set_number just in case
     acc[name].push(set);
+    acc[name].sort((a, b) => a.set_number - b.set_number);
+    
     return acc;
-  }, {}) : {};
+  }, {});
 
   return (
     <div className="app-container">
@@ -261,8 +299,13 @@ export default function WorkoutDetail() {
                         <input type="number" step="0.5" max="10" placeholder="RPE" value={editRpe} onChange={e => setEditRpe(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#888', border: '1px solid #444', textAlign: 'center' }} />
 
                         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
-                          <button onClick={() => handleUpdateHistorySet(set.id)} style={{ backgroundColor: '#4ade80', color: '#111', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
-                          <button onClick={() => setEditingSetId(null)} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
+                        <button onClick={() => handleUpdateHistorySet(set.id)} style={{ backgroundColor: '#4ade80', color: '#111', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
+                        
+                        {/* 🗑️ NEW: Delete Set Button */}
+                        <button onClick={() => handleDeleteHistorySet(set.id)} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Delete</button>
+                        
+                        {/* Changed Cancel button to dark gray */}
+                        <button onClick={() => setEditingSetId(null)} style={{ backgroundColor: '#444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
                         </div>
                       </div>
                     ) : (

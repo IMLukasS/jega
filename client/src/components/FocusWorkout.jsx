@@ -184,6 +184,26 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     }
   }, [activeExerciseIndex, currentSetIndex, plannedSet, editingSetIndex, freestyleTrackingType]); // Added tracking type to reset fields safely
 
+  const handleCancelWorkout = async () => {
+    const isSure = window.confirm("Are you sure you want to cancel? This will delete the workout entirely.");
+    if (!isSure) return;
+
+    // 1. Wipe the local cache so it doesn't resume
+    localStorage.removeItem('activeWorkoutSession');
+
+    // 2. Delete the accidental database entry
+    try {
+      await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
+        method: 'DELETE',
+      });
+    } catch (error) {
+      console.error("Failed to delete canceled workout:", error);
+    }
+
+    // 3. Kick them back to the templates page
+    navigate('/templates');
+  };
+
   const handleFinalizeWorkout = async () => {
     // 🧹 NEW: Clear the active session so it doesn't accidentally resume next time
     localStorage.removeItem('activeWorkoutSession');
@@ -262,6 +282,38 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
       console.error("Failed to log/update set", error);
     }
   };
+
+  const handleDeleteActiveSet = async () => {
+    if (editingSetIndex === null) return;
+    
+    const isSure = window.confirm("Are you sure you want to delete this set?");
+    if (!isSure) return;
+
+    // Grab the actual database ID of the set we are editing
+    const setToDelete = currentCompletedSets[editingSetIndex];
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}/sets/${setToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Remove it from the local state (which will auto-trigger your localStorage save!)
+        setAllCompletedSets(prev => {
+          const updated = [...prev[activeExerciseIndex]];
+          updated.splice(editingSetIndex, 1); // Remove the 1 set at this index
+          return { ...prev, [activeExerciseIndex]: updated };
+        });
+        
+        // Snap out of edit mode
+        setEditingSetIndex(null); 
+      } else {
+        alert("Failed to delete set.");
+      }
+    } catch (error) {
+      console.error("Error deleting active set:", error);
+    }
+  };
   
   const handleStartEdit = (index) => {
     const setToEdit = currentCompletedSets[index];
@@ -316,12 +368,20 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
           </div>
         </div>
 
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
         <button 
-          onClick={handleFinalizeWorkout}
-          style={{ backgroundColor: 'transparent', color: '#ef4444', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
+            onClick={handleCancelWorkout}
+            style={{ backgroundColor: 'transparent', color: '#888', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
         >
-          End Early
+            Cancel
         </button>
+        <button 
+            onClick={handleFinalizeWorkout}
+            style={{ backgroundColor: 'transparent', color: '#10b981', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
+        >
+            Finish
+        </button>
+        </div>
       </div>
 
       {/* Main Focus Card */}
@@ -471,21 +531,33 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
 
           <div style={{ display: 'flex', gap: '12px' }}>
             {editingSetIndex !== null && (
-              <button 
-                type="button" 
-                onClick={handleCancelEdit}
-                style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
-              >
-                Cancel
-              </button>
+                <>
+                <button 
+                    type="button" 
+                    onClick={handleCancelEdit}
+                    style={{ backgroundColor: '#444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
+                >
+                    Cancel
+                </button>
+                
+                {/* 🗑️ NEW: Delete button alongside Cancel */}
+                <button 
+                    type="button" 
+                    onClick={handleDeleteActiveSet}
+                    style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
+                >
+                    Delete
+                </button>
+                </>
             )}
+            
             <button 
-              type="submit" 
-              style={{ backgroundColor: editingSetIndex !== null ? '#eab308' : '#111', color: editingSetIndex !== null ? '#111' : '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 2 }}
+                type="submit" 
+                style={{ backgroundColor: editingSetIndex !== null ? '#eab308' : '#111', color: editingSetIndex !== null ? '#111' : '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 2 }}
             >
-              {editingSetIndex !== null ? `Update Set ${editingSetIndex + 1}` : 'Log Set'}
+                {editingSetIndex !== null ? `Update Set ${editingSetIndex + 1}` : 'Log Set'}
             </button>
-          </div>
+            </div>
 
         </form>
 

@@ -7,7 +7,7 @@ export default function TemplatesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/v1/routines')
+    fetch(`${API_URL}/api/v1/routines`)
       .then((res) => res.json())
       .then((data) => {
         setRoutines(data);
@@ -20,7 +20,7 @@ export default function TemplatesPage() {
     if (!window.confirm("Are you sure you want to permanently delete this blueprint template?")) return;
 
     try {
-      const response = await fetch(`http://localhost:3000/api/v1/routines/${templateId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_URL}/api/v1/routines/${templateId}`, { method: 'DELETE' });
       if (response.ok) {
         setRoutines(prev => prev.filter(r => r.id !== templateId));
       }

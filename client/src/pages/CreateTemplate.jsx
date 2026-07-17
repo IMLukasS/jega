@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom'; // 💡 Added useParams and useLocation
+import API_URL from '../api';
 
 export default function CreateTemplate() {
   const navigate = useNavigate();
@@ -51,7 +52,7 @@ export default function CreateTemplate() {
 
   useEffect(() => {
     if (isModalOpen && availableExercises.length === 0) {
-      fetch('http://localhost:3000/api/v1/exercises')
+      fetch(`${API_URL}/api/v1/exercises`)
         .then(res => res.json())
         .then(data => setAvailableExercises(data))
         .catch(err => console.error("Error fetching exercises:", err));
@@ -212,8 +213,8 @@ export default function CreateTemplate() {
 
     // 💡 Toggle properties based on our current mode
     const url = isEditMode 
-      ? `http://localhost:3000/api/v1/routines/${id}` 
-      : 'http://localhost:3000/api/v1/routines';
+      ? `${API_URL}/api/v1/routines/${id}` 
+      : `${API_URL}/api/v1/routines`;
     const method = isEditMode ? 'PUT' : 'POST';
 
     try {

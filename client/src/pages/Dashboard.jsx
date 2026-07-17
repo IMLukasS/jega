@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import WorkoutCalendarGrid from '../components/WorkoutCalendarGrid';
+import API_URL from '../api';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -9,7 +10,7 @@ export default function Dashboard() {
   const [newWorkoutName, setNewWorkoutName] = useState("");
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/v1/workouts')
+    fetch(`${API_URL}/api/v1/workouts`)
       .then((res) => res.json())
       .then((data) => {
         setWorkouts(data);
@@ -20,7 +21,7 @@ export default function Dashboard() {
 
   const handleDeleteWorkout = async (workoutId) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
+      const response = await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
         method: 'DELETE',
       });
 

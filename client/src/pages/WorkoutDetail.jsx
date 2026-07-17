@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import API_URL from '../api';
 
 const formatDate = (isoString) => {
   if (!isoString) return '';
@@ -51,7 +52,7 @@ export default function WorkoutDetail() {
   const [editRpe, setEditRpe] = useState('');
 
   useEffect(() => {
-    fetch(`http://localhost:3000/api/v1/workouts/${id}`)
+    fetch(`${API_URL}/api/v1/workouts/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load workout');
         return res.json();
@@ -73,7 +74,7 @@ export default function WorkoutDetail() {
 
     const nextSetNumber = workout.sets ? workout.sets.length + 1 : 1;
 
-    fetch(`http://localhost:3000/api/v1/workouts/${id}/sets`, {
+    fetch(`${API_URL}/api/v1/workouts/${id}/sets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -106,7 +107,7 @@ export default function WorkoutDetail() {
 
   const handleUpdateHistorySet = async (setId) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/v1/workouts/${id}/sets/${setId}`, {
+      const response = await fetch(`${API_URL}/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -148,7 +149,7 @@ export default function WorkoutDetail() {
     if (!isSure) return;
 
     try {
-      const response = await fetch(`http://localhost:3000/api/v1/workouts/${id}/sets/${setId}`, {
+      const response = await fetch(`${API_URL}/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'DELETE',
       });
 

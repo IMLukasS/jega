@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import API_URL from '../api';
 
 export default function TemplatesPage() {
   const [routines, setRoutines] = useState([]);

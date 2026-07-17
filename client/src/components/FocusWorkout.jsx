@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom'; // 💡 Added useLocation
+import API_URL from '../api';
+
 
 export default function FocusWorkout() {
   const { routineId } = useParams(); 
@@ -108,7 +110,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
           workoutId: location.state.existingWorkoutId, routineId, startTime: Date.now() 
         }));
       } else {
-        fetch('http://localhost:3000/api/v1/workouts', {
+        fetch(`${API_URL}/api/v1/workouts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Freestyle Session', routine_id: null })
@@ -126,7 +128,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     }
 
     // 📋 Standard Template Mode
-    fetch('http://localhost:3000/api/v1/routines')
+    fetch(`${API_URL}/api/v1/routines/${routineId}`)
     .then((res) => res.json())
     .then(async (data) => {
         const selectedRoutine = data.find((r) => r.id === routineId);
@@ -138,7 +140,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
           setWorkoutId(savedSession.workoutId);
         } else {
           // Create new session
-          const startSessionRes = await fetch('http://localhost:3000/api/v1/workouts', {
+          const startSessionRes = await fetch(`${API_URL}/api/v1/workouts`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: `${selectedRoutine.name} Session`, routine_id: selectedRoutine.id })
@@ -193,7 +195,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
 
     // 2. Delete the accidental database entry
     try {
-      await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
+      await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
         method: 'DELETE',
       });
     } catch (error) {
@@ -209,7 +211,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     localStorage.removeItem('activeWorkoutSession');
 
     try {
-      await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}`, {
+      await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ duration_seconds: elapsedSeconds })
@@ -244,8 +246,8 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
 
     try {
       const url = isEditing 
-        ? `http://localhost:3000/api/v1/workouts/${workoutId}/sets/${currentCompletedSets[editingSetIndex].id}`
-        : `http://localhost:3000/api/v1/workouts/${workoutId}/sets`;
+        ? `${API_URL}/api/v1/workouts/${workoutId}/sets/${currentCompletedSets[editingSetIndex].id}`
+        : `${API_URL}/api/v1/workouts/${workoutId}/sets`;
 
       const method = isEditing ? 'PUT' : 'POST';
 
@@ -293,7 +295,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     const setToDelete = currentCompletedSets[editingSetIndex];
 
     try {
-      const response = await fetch(`http://localhost:3000/api/v1/workouts/${workoutId}/sets/${setToDelete.id}`, {
+      const response = await fetch(`${API_URL}/api/v1/workouts/${workoutId}/sets/${setToDelete.id}`, {
         method: 'DELETE',
       });
 

@@ -36,6 +36,47 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/v1/routines/:id
+// Fetches a SINGLE routine and bundles its exercises
+router.get('/:id', async (req, res) => {
+  try {
+    const routineId = req.params.id;
+    const query = `
+      SELECT 
+        r.id, 
+        r.name,
+        json_agg(
+          json_build_object(
+            'exercise_id', e.id,
+            'name', e.title,
+            'sequence_order', re.sequence_order,
+            'tracking_type', e.tracking_type,
+            'tags', re.tags,                  
+            'sets', re.sets,                  
+            'short_description', e.short_description
+          ) ORDER BY re.sequence_order ASC
+        ) AS exercises
+      FROM routines r
+      JOIN routine_exercises re ON r.id = re.routine_id
+      JOIN exercises e ON re.exercise_id = e.id
+      WHERE r.id = $1
+      GROUP BY r.id, r.name;
+    `;
+    
+    const result = await db.query(query, [routineId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Routine not found' });
+    }
+    
+    // Return just the single object instead of an array
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching single routine:', error);
+    res.status(500).json({ error: 'Failed to fetch routine' });
+  }
+});
+
 // POST /api/v1/routines
 // Creates a new custom template with dynamic set mapping
 router.post('/', async (req, res) => {

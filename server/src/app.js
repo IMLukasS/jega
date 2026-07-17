@@ -12,11 +12,6 @@ app.use(helmet())
 app.use(express.json())
 
 // Allow CORS from the frontend URL, and allow credentials (cookies)
-console.log("=========================================");
-console.log("👉 RAW CLIENT_URL VALUE:", process.env.CLIENT_URL);
-console.log("👉 DO ANY KEYS MATCH?:", Object.keys(process.env).filter(k => k.toUpperCase().includes('CLIENT') || k.toUpperCase().includes('URL')));
-console.log("=========================================");
-
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true

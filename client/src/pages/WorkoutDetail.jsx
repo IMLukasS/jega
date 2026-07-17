@@ -182,25 +182,25 @@ export default function WorkoutDetail() {
   if (error) return <div className="app-container"><p style={{ color: '#ff4444' }}>{error}</p></div>;
   if (!workout) return <div className="app-container"><p>Workout not found.</p></div>;
 
+  // Sort sets internally to ensure timestamps/set numbers align
   const sortedSets = workout.sets 
-    ? [...workout.sets].sort((a, b) => {
-        // Sort by timestamp if available, fallback to the database ID
-        if (a.created_at && b.created_at) return new Date(a.created_at) - new Date(b.created_at);
-        return a.id > b.id ? 1 : -1;
-      })
+    ? [...workout.sets].sort((a, b) => a.set_number - b.set_number)
     : [];
 
-  // Group the perfectly sorted sets. The object will now preserve your actual workout flow.
+  // Group the sets by exercise name
   const groupedSets = sortedSets.reduce((acc, set) => {
     const name = set.exercise_name || 'Unknown Exercise';
     if (!acc[name]) acc[name] = [];
-    
-    // Sort sets internally by set_number just in case
     acc[name].push(set);
-    acc[name].sort((a, b) => a.set_number - b.set_number);
-    
     return acc;
   }, {});
+
+  // 💡 NEW FIX: Sort the entire exercise dictionary by its structural sequence_order
+  const orderedGroupedEntries = Object.entries(groupedSets).sort((a, b) => {
+    const orderA = a[1][0]?.sequence_order ?? 999;
+    const orderB = b[1][0]?.sequence_order ?? 999;
+    return orderA - orderB;
+  });
 
   return (
     <div className="app-container">
@@ -237,8 +237,8 @@ export default function WorkoutDetail() {
       </header>
 
       <div className="workout-list">
-        {Object.keys(groupedSets).length > 0 ? (
-          Object.entries(groupedSets).map(([exerciseName, setsForExercise]) => (
+        {orderedGroupedEntries.length > 0 ? (
+  orderedGroupedEntries.map(([exerciseName, setsForExercise]) => (
             <div key={exerciseName} style={{ marginBottom: '24px' }}>
               
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '10px', borderBottom: '2px solid #2d2d2d', paddingBottom: '6px' }}>

@@ -72,15 +72,16 @@ router.get('/:id', async (req, res) => {
         sl.distance, 
         sl.rpe, 
         sl.completed_at,
-        COALESCE(e.title, 'Freestyle Exercise') AS exercise_name, -- 💡 Fallback text if exercise doesn't exist
+        COALESCE(e.title, 'Freestyle Exercise') AS exercise_name, 
         COALESCE(e.tracking_type, 'weight_reps') AS tracking_type,
+        COALESCE(re.sequence_order, 999) AS sequence_order, -- 💡 NEW: Extracts your original template sequence order
         re.tags
       FROM set_logs sl
-      LEFT JOIN exercises e ON sl.exercise_id = e.id -- 💡 Changed from JOIN to LEFT JOIN
+      LEFT JOIN exercises e ON sl.exercise_id = e.id 
       JOIN workout_logs wl ON sl.workout_log_id = wl.id 
       LEFT JOIN routine_exercises re ON re.routine_id = wl.routine_id AND re.exercise_id = sl.exercise_id 
       WHERE sl.workout_log_id = $1
-      ORDER BY sl.id ASC;
+      ORDER BY COALESCE(re.sequence_order, 999) ASC, sl.set_number ASC, sl.id ASC; -- 💡 NEW: Forces Squats -> Bench -> Run ordering right out of SQL
     `;
     const setsResult = await db.query(setsQuery, [id]);
 

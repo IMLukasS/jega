@@ -238,7 +238,7 @@ export default function WorkoutDetail() {
 
       <div className="workout-list">
         {orderedGroupedEntries.length > 0 ? (
-  orderedGroupedEntries.map(([exerciseName, setsForExercise]) => (
+            orderedGroupedEntries.map(([exerciseName, setsForExercise]) => (
             <div key={exerciseName} style={{ marginBottom: '24px' }}>
               
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '10px', borderBottom: '2px solid #2d2d2d', paddingBottom: '6px' }}>

@@ -48,6 +48,36 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     return 0;
   });
 
+  // ⏱️ NEW: Rest Timer States
+  const [restTimeLeft, setRestTimeLeft] = useState(0);
+  const [isRestTimerRunning, setIsRestTimerRunning] = useState(false);
+
+  // ⏱️ NEW: Rest Countdown Engine
+  useEffect(() => {
+    let interval = null;
+    if (isRestTimerRunning && restTimeLeft > 0) {
+      interval = setInterval(() => {
+        setRestTimeLeft((prev) => prev - 1);
+      }, 1000);
+    } else if (restTimeLeft === 0) {
+      setIsRestTimerRunning(false);
+    }
+    return () => clearInterval(interval);
+  }, [isRestTimerRunning, restTimeLeft]);
+
+  // ⏱️ NEW: Format rest seconds to MM:SS (e.g., 90 -> "01:30")
+  const formatRestDisplay = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // ⏱️ NEW: Quick Start Trigger
+  const startRestTimer = (seconds) => {
+    setRestTimeLeft(seconds);
+    setIsRestTimerRunning(true);
+  };
+
   // 💾 NEW: Autosave UI state to localStorage
   useEffect(() => {
     if (!workoutId) return; // Wait until the session is fully established
@@ -333,6 +363,10 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
   };
 
   const handleNextExercise = () => {
+    // 🧹 NEW: Clear the rest timer when moving to a completely new exercise
+    setRestTimeLeft(0);
+    setIsRestTimerRunning(false);
+
     if (!isLastExercise) {
       setActiveExerciseIndex(activeExerciseIndex + 1);
     } else {
@@ -570,6 +604,66 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
         >
           {isLastExercise ? "Finish Workout 🎉" : "Next Exercise ➔"}
         </button>
+
+        {/* ⏱️ NEW: Manual Rest Timer Component Block */}
+        <div style={{
+          backgroundColor: '#111',
+          border: '1px solid #2d2d2d',
+          borderRadius: '8px',
+          padding: '16px',
+          marginTop: '16px',
+          textAlign: 'center'
+        }}>
+          <div style={{ marginBottom: '10px' }}>
+            <span style={{ 
+              fontSize: '2.2rem', 
+              fontFamily: 'monospace', 
+              fontWeight: 'bold',
+              color: restTimeLeft > 0 ? '#10b981' : '#555' 
+            }}>
+              {formatRestDisplay(restTimeLeft)}
+            </span>
+            {restTimeLeft > 0 && (
+              <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {isRestTimerRunning ? '⏱️ Rest Active' : '⏸️ Paused'}
+              </p>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button 
+              type="button"
+              onClick={() => startRestTimer(30)}
+              style={{ backgroundColor: '#2d2d2d', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' }}
+            >
+              30s
+            </button>
+            <button 
+              type="button"
+              onClick={() => startRestTimer(60)}
+              style={{ backgroundColor: '#2d2d2d', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' }}
+            >
+              1 min
+            </button>
+            <button 
+              type="button"
+              onClick={() => startRestTimer(120)}
+              style={{ backgroundColor: '#2d2d2d', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' }}
+            >
+              2 min
+            </button>
+
+            {restTimeLeft > 0 && (
+              <button 
+                type="button"
+                onClick={() => setRestTimeLeft(0)}
+                style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' }}
+              >
+                Skip ✕
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* BOTTOM NAVIGATION: The Horizontal Timeline */}

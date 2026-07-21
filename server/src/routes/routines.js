@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db'); 
+const auth = require('../middleware/auth'); // 🛡️ Import the security bouncer
 
 // GET /api/v1/routines
-// Fetches all routines and bundles their exercises with the new JSON arrays
-router.get('/', async (req, res) => {
+// Fetches all routines belonging exclusively to the logged-in user
+router.get('/', auth, async (req, res) => {
   try {
     const query = `
       SELECT 
@@ -15,20 +16,21 @@ router.get('/', async (req, res) => {
             'exercise_id', e.id,
             'name', e.title,
             'sequence_order', re.sequence_order,
-            'tracking_type', e.tracking_type, -- ---> NEW: Fetches how to track it
-            'tags', re.tags,                  -- ---> NEW: Fetches custom tags
-            'sets', re.sets,                  -- ---> NEW: Fetches the detailed set array
+            'tracking_type', e.tracking_type, 
+            'tags', re.tags,                  
+            'sets', re.sets,                  
             'short_description', e.short_description
           ) ORDER BY re.sequence_order ASC
         ) AS exercises
       FROM routines r
       JOIN routine_exercises re ON r.id = re.routine_id
       JOIN exercises e ON re.exercise_id = e.id
+      WHERE r.user_id = $1 -- 🔒 User Isolation Filter
       GROUP BY r.id, r.name
       ORDER BY r.created_at ASC;
     `;
     
-    const result = await db.query(query);
+    const result = await db.query(query, [req.user.id]);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching routines:', error);
@@ -37,8 +39,8 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/v1/routines/:id
-// Fetches a SINGLE routine and bundles its exercises
-router.get('/:id', async (req, res) => {
+// Fetches a SINGLE routine, guaranteeing ownership
+router.get('/:id', auth, async (req, res) => {
   try {
     const routineId = req.params.id;
     const query = `
@@ -59,18 +61,18 @@ router.get('/:id', async (req, res) => {
       FROM routines r
       JOIN routine_exercises re ON r.id = re.routine_id
       JOIN exercises e ON re.exercise_id = e.id
-      WHERE r.id = $1
+      WHERE r.id = $1 AND r.user_id = $2 -- 🔒 Double validation check (ID + Owner)
       GROUP BY r.id, r.name;
     `;
     
-    const result = await db.query(query, [routineId]);
+    const result = await db.query(query, [routineId, req.user.id]);
     
     if (result.rows.length === 0) {
+      // Return a 404 to avoid leaking whether the record exists or just belongs to someone else
       return res.status(404).json({ error: 'Routine not found' });
     }
     
-    // Return just the single object instead of an array
-    res.json(result.rows);
+    res.json(result.rows[0]);
   } catch (error) {
     console.error('Error fetching single routine:', error);
     res.status(500).json({ error: 'Failed to fetch routine' });
@@ -78,8 +80,8 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/v1/routines
-// Creates a new custom template with dynamic set mapping
-router.post('/', async (req, res) => {
+// Creates a new custom template bound to the authenticated user's ID
+router.post('/', auth, async (req, res) => {
   const { name, exercises } = req.body;
 
   if (!name || !exercises || exercises.length === 0) {
@@ -91,13 +93,13 @@ router.post('/', async (req, res) => {
   try {
     await client.query('BEGIN'); 
 
-    // 1. Insert the parent routine
+    // 1. Insert the parent routine mapped to the token's user_id
     const routineQuery = `
-      INSERT INTO routines (name) 
-      VALUES ($1) 
+      INSERT INTO routines (name, user_id) 
+      VALUES ($1, $2) 
       RETURNING id, name;
     `;
-    const routineResult = await client.query(routineQuery, [name]);
+    const routineResult = await client.query(routineQuery, [name, req.user.id]);
     const newRoutine = routineResult.rows[0];
 
     // 2. Prepare the insertion query for the join table
@@ -106,12 +108,10 @@ router.post('/', async (req, res) => {
       VALUES ($1, $2, $3, $4, $5); 
     `;
     
-    // 3. Loop through the exercises array
     for (let i = 0; i < exercises.length; i++) {
       const ex = exercises[i];
       let finalExerciseId = ex.exercise_id;
 
-      // Check if it is a custom exercise
       if (!finalExerciseId) {
         const checkExisting = await client.query(
           'SELECT id FROM exercises WHERE LOWER(title) = LOWER($1);', 
@@ -129,9 +129,6 @@ router.post('/', async (req, res) => {
         }
       }
 
-      // ---> THE FIX: The Update Logic <---
-      // Regardless of whether this exercise was just created or pulled from the library,
-      // force the master exercises table to update its tracking_type to match your dropdown!
       if (finalExerciseId) {
         await client.query(
           'UPDATE exercises SET tracking_type = $1 WHERE id = $2;',
@@ -139,11 +136,9 @@ router.post('/', async (req, res) => {
         );
       }
 
-      // 4. Clean up the data for PostgreSQL
       const setsJson = JSON.stringify(ex.sets || []); 
       const tagsArray = ex.tags || [];
 
-      // 5. Insert into the routine_exercises join table
       await client.query(routineExerciseQuery, [
         newRoutine.id, 
         finalExerciseId, 
@@ -164,7 +159,6 @@ router.post('/', async (req, res) => {
     await client.query('ROLLBACK'); 
     console.error('Transaction Error in POST /api/v1/routines:', error);
     
-    // ---> THE FIX: Catch the Postgres unique constraint violation (Code 23505) <---
     if (error.code === '23505') {
       return res.status(400).json({ 
         error: `A workout template named "${name}" already exists. Please choose a unique name!` 
@@ -178,8 +172,8 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/v1/routines/:id
-// Updates an existing template and its mapped exercises
-router.put('/:id', async (req, res) => {
+// Updates an existing template if and only if the authenticated user owns it
+router.put('/:id', auth, async (req, res) => {
   const routineId = req.params.id;
   const { name, exercises } = req.body;
 
@@ -192,20 +186,21 @@ router.put('/:id', async (req, res) => {
   try {
     await client.query('BEGIN'); 
 
-    // 1. Update the parent routine name
+    // 1. Target update explicitly specifying the user_id owner constraint
     const routineResult = await client.query(
-      'UPDATE routines SET name = $1 WHERE id = $2 RETURNING id, name;', 
-      [name, routineId]
+      'UPDATE routines SET name = $1 WHERE id = $2 AND user_id = $3 RETURNING id, name;', 
+      [name, routineId, req.user.id]
     );
 
+    // BOLA Protection Check: If row count is zero, the routine either doesn't exist or belongs to another account
     if (routineResult.rows.length === 0) {
-      throw new Error('Routine not found');
+      return res.status(404).json({ error: 'Routine not found or access unauthorized.' });
     }
 
-    // 2. Wipe the old exercises from the join table
+    // 2. Safely wipe old child exercises from the join table
     await client.query('DELETE FROM routine_exercises WHERE routine_id = $1', [routineId]);
 
-    // 3. Re-insert the new/updated exercises (Identical logic to your POST route)
+    // 3. Re-insert updated configurations
     const routineExerciseQuery = `
       INSERT INTO routine_exercises (routine_id, exercise_id, sequence_order, sets, tags)
       VALUES ($1, $2, $3, $4, $5); 
@@ -213,7 +208,6 @@ router.put('/:id', async (req, res) => {
     
     for (let i = 0; i < exercises.length; i++) {
       const ex = exercises[i];
-      // Note: React might pass exercise_id or just id depending on how the frontend maps it
       let finalExerciseId = ex.exercise_id || ex.id; 
 
       if (!finalExerciseId) {
@@ -269,18 +263,28 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/v1/routines/:id
-// Deletes a template and all its associated exercise links
-router.delete('/:id', async (req, res) => {
+// Deletes a template and associated exercise references after authenticating ownership
+router.delete('/:id', auth, async (req, res) => {
   const routineId = req.params.id;
   const client = await db.connect(); 
 
   try {
     await client.query('BEGIN'); 
 
-    // Delete child records first
+    // Verification step: Ensure the user actually owns this routine before dropping dependencies
+    const checkOwnership = await client.query(
+      'SELECT id FROM routines WHERE id = $1 AND user_id = $2',
+      [routineId, req.user.id]
+    );
+
+    if (checkOwnership.rows.length === 0) {
+      return res.status(404).json({ error: 'Routine not found or access unauthorized.' });
+    }
+
+    // Delete child mapping associations
     await client.query('DELETE FROM routine_exercises WHERE routine_id = $1', [routineId]);
     
-    // Delete parent record
+    // Delete target parent routine entry
     await client.query('DELETE FROM routines WHERE id = $1', [routineId]);
 
     await client.query('COMMIT'); 

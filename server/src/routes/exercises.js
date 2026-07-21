@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // Ensure this points to your database pool
+const db = require('../db'); 
+const auth = require('../middleware/auth'); // 🛡️ Import the security bouncer
 
 // GET /api/v1/exercises
-// Fetches all available exercises for the template builder modal
-router.get('/', async (req, res) => {
+// Fetches all available exercises for the template builder modal (Protected)
+router.get('/', auth, async (req, res) => {
   try {
-    // We update this to grab your new columns: title, body_part, and equipment
-    // This is what powers the nice search filtering and visual tags in the frontend modal!
+    // Powers the search filtering and visual tags safely behind a logged-in session
     const query = `
       SELECT id, title, body_part, equipment, exercise_type, short_description 
       FROM exercises 

@@ -27,6 +27,10 @@ app.get('/health', (req, res) => {
 
 // --- ROUTES ---
 
+// 🛡️ Mount the Auth Router
+const authRouter = require('./routes/auth')
+app.use('/api/v1/auth', authRouter)
+
 const workoutsRouter = require('./routes/workouts')
 app.use('/api/v1/workouts', workoutsRouter)
 

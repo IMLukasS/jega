@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // Import our database connection pool
+const db = require('../db'); 
+const auth = require('../middleware/auth'); // 🛡️ Import the security gateway middleware
 
-// 1. POST /api/v1/workouts - Create a workout session in the cloud
-router.post('/', async (req, res) => {
-  // ---> UPDATE: Destructure routine_id from the body so we can link templates to workouts
+// 1. POST /api/v1/workouts - Create a workout session bound to the user
+router.post('/', auth, async (req, res) => {
   const { name, routine_id, notes } = req.body; 
 
   if (!name) {
@@ -12,16 +12,17 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // ---> UPDATE: Insert the routine_id column
+    // 🔒 Securely bind the session to req.user.id extracted from the JWT token
     const queryText = `
-      INSERT INTO workout_logs (name, routine_id, notes) 
-      VALUES ($1, $2, $3) 
+      INSERT INTO workout_logs (name, routine_id, notes, user_id) 
+      VALUES ($1, $2, $3, $4) 
       RETURNING id, name, routine_id, started_at, notes;
     `;
     const result = await db.query(queryText, [
       name, 
       routine_id || null, 
-      notes || null
+      notes || null,
+      req.user.id
     ]);
     return res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -30,15 +31,16 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 2. GET /api/v1/workouts - Retrieve all sessions from the cloud
-router.get('/', async (req, res) => {
+// 2. GET /api/v1/workouts - Retrieve sessions belonging exclusively to the logged-in user
+router.get('/', auth, async (req, res) => {
   try {
     const queryText = `
       SELECT id, name, started_at, completed_at, duration_seconds, notes 
       FROM workout_logs 
+      WHERE user_id = $1 -- 🔒 User Isolation Filter
       ORDER BY started_at DESC;
     `;
-    const result = await db.query(queryText);
+    const result = await db.query(queryText, [req.user.id]);
     return res.status(200).json(result.rows);
   } catch (error) {
     console.error('Database Error in GET /api/v1/workouts:', error);
@@ -46,21 +48,21 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 3. GET /api/v1/workouts/:id - Retrieve a single workout WITH its sets and tags from the cloud
-router.get('/:id', async (req, res) => {
+// 3. GET /api/v1/workouts/:id - Retrieve a single workout ensuring ownership
+router.get('/:id', auth, async (req, res) => {
   const { id } = req.params;
 
   try {
-    const workoutQuery = `SELECT * FROM workout_logs WHERE id = $1;`;
-    const workoutResult = await db.query(workoutQuery, [id]);
+    // 🔒 Double-check ownership: ensure the resource belongs to the current token user
+    const workoutQuery = `SELECT * FROM workout_logs WHERE id = $1 AND user_id = $2;`;
+    const workoutResult = await db.query(workoutQuery, [id, req.user.id]);
 
     if (workoutResult.rows.length === 0) {
-      return res.status(404).json({ error: `Workout with ID ${id} not found` });
+      return res.status(404).json({ error: 'Workout log not found' });
     }
 
     const workout = workoutResult.rows[0];
 
-    // ---> UPDATE: Joined workout_logs and routine_exercises to extract matching tags!
     const setsQuery = `
       SELECT 
         sl.id, 
@@ -74,19 +76,17 @@ router.get('/:id', async (req, res) => {
         sl.completed_at,
         COALESCE(e.title, 'Freestyle Exercise') AS exercise_name, 
         COALESCE(e.tracking_type, 'weight_reps') AS tracking_type,
-        COALESCE(re.sequence_order, 999) AS sequence_order, -- 💡 NEW: Extracts your original template sequence order
+        COALESCE(re.sequence_order, 999) AS sequence_order, 
         re.tags
       FROM set_logs sl
       LEFT JOIN exercises e ON sl.exercise_id = e.id 
       JOIN workout_logs wl ON sl.workout_log_id = wl.id 
       LEFT JOIN routine_exercises re ON re.routine_id = wl.routine_id AND re.exercise_id = sl.exercise_id 
       WHERE sl.workout_log_id = $1
-      ORDER BY COALESCE(re.sequence_order, 999) ASC, sl.set_number ASC, sl.id ASC; -- 💡 NEW: Forces Squats -> Bench -> Run ordering right out of SQL
+      ORDER BY COALESCE(re.sequence_order, 999) ASC, sl.set_number ASC, sl.id ASC;
     `;
     const setsResult = await db.query(setsQuery, [id]);
 
-    // ---> UPDATE: Clean set results to ensure tags default to [] (never null) 
-    // This keeps the React frontend from throwing type-errors on freestyle workouts.
     const setsWithTags = setsResult.rows.map(row => ({
       ...row,
       tags: row.tags || []
@@ -102,8 +102,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 4. POST /api/v1/workouts/:id/sets - Log a set for a specific workout (UNCHANGED)
-router.post('/:id/sets', async (req, res) => {
+// 4. POST /api/v1/workouts/:id/sets - Log a set under a workout session after ownership check
+router.post('/:id/sets', auth, async (req, res) => {
   const { id } = req.params;
   const { 
     exercise_id, 
@@ -121,9 +121,10 @@ router.post('/:id/sets', async (req, res) => {
   }
 
   try {
-    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1;', [id]);
+    // 🛡️ BOLA Protection: Verify the user owns the parent workout log before mutating database records
+    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1 AND user_id = $2;', [id, req.user.id]);
     if (workoutCheck.rows.length === 0) {
-      return res.status(404).json({ error: `Cannot log set. Workout log ${id} does not exist.` });
+      return res.status(404).json({ error: 'Workout log not found or access unauthorized.' });
     }
 
     const queryText = `
@@ -163,7 +164,7 @@ router.post('/:id/sets', async (req, res) => {
 });
 
 // 5. PUT /api/v1/workouts/:id/sets/:setId - Update an already logged set
-router.put('/:id/sets/:setId', async (req, res) => {
+router.put('/:id/sets/:setId', auth, async (req, res) => {
   const { id, setId } = req.params;
   const { 
     actual_weight_kg, 
@@ -175,13 +176,12 @@ router.put('/:id/sets/:setId', async (req, res) => {
   } = req.body;
 
   try {
-    // 1. Double check that the parent workout log exists
-    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1;', [id]);
+    // 🛡️ BOLA Protection: Verify ownership of the parent resource before making modification
+    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1 AND user_id = $2;', [id, req.user.id]);
     if (workoutCheck.rows.length === 0) {
-      return res.status(404).json({ error: `Workout log ${id} does not exist.` });
+      return res.status(404).json({ error: 'Workout log not found or access unauthorized.' });
     }
 
-    // 2. Perform the update query on the specific set row
     const queryText = `
       UPDATE set_logs 
       SET 
@@ -209,7 +209,7 @@ router.put('/:id/sets/:setId', async (req, res) => {
     const result = await db.query(queryText, values);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: `Set log with ID ${setId} not found under this workout.` });
+      return res.status(404).json({ error: 'Set log not found under this workout.' });
     }
 
     return res.status(200).json(result.rows[0]);
@@ -219,20 +219,22 @@ router.put('/:id/sets/:setId', async (req, res) => {
   }
 });
 
-// 6. DELETE /api/v1/workouts/:id - Delete a single workout session and all its associated sets
-router.delete('/:id', async (req, res) => {
+// 6. DELETE /api/v1/workouts/:id - Delete a single workout session and child sets
+router.delete('/:id', auth, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 1. Delete all dependent set logs first to prevent foreign key constraint errors
+    // 🛡️ BOLA Protection: Verify ownership before initiating cascade deletions
+    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1 AND user_id = $2;', [id, req.user.id]);
+    if (workoutCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Workout log not found or access unauthorized.' });
+    }
+
+    // 1. Clear dependent sets
     await db.query('DELETE FROM set_logs WHERE workout_log_id = $1;', [id]);
 
-    // 2. Delete the parent workout log entry
+    // 2. Clear parent entry
     const result = await db.query('DELETE FROM workout_logs WHERE id = $1 RETURNING *;', [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: `Workout log with ID ${id} not found.` });
-    }
 
     return res.status(200).json({ 
       message: 'Workout log and all associated set logs deleted successfully.',
@@ -244,29 +246,30 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// 7. PATCH /api/v1/workouts/:id - Update workout session details (like duration and completion)
-router.patch('/:id', async (req, res) => {
+// 7. PATCH /api/v1/workouts/:id - Update workout session execution details
+router.patch('/:id', auth, async (req, res) => {
   const { id } = req.params;
   const { duration_seconds } = req.body;
 
   try {
-    // Updates the duration and stamps the completion time simultaneously
+    // 🔒 Enforce ID + Owner parameter check directly within the targeting update block
     const queryText = `
       UPDATE workout_logs 
       SET 
         duration_seconds = $1,
         completed_at = NOW()
-      WHERE id = $2
+      WHERE id = $2 AND user_id = $3
       RETURNING *;
     `;
     
     const result = await db.query(queryText, [
       duration_seconds !== undefined ? Number(duration_seconds) : null, 
-      id
+      id,
+      req.user.id
     ]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: `Workout log with ID ${id} not found.` });
+      return res.status(404).json({ error: 'Workout log not found or access unauthorized.' });
     }
 
     return res.status(200).json(result.rows[0]);
@@ -277,20 +280,25 @@ router.patch('/:id', async (req, res) => {
 });
 
 // 8. DELETE /api/v1/workouts/:id/sets/:setId - Delete a specific set from a workout
-router.delete('/:id/sets/:setId', async (req, res) => {
+router.delete('/:id/sets/:setId', auth, async (req, res) => {
   const { id, setId } = req.params;
 
   try {
+    // 🛡️ BOLA Protection: Verify ownership of the base routine before deleting subcomponents
+    const workoutCheck = await db.query('SELECT id FROM workout_logs WHERE id = $1 AND user_id = $2;', [id, req.user.id]);
+    if (workoutCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Workout log not found or access unauthorized.' });
+    }
+
     const queryText = `
       DELETE FROM set_logs 
       WHERE id = $1 AND workout_log_id = $2 
       RETURNING *;
     `;
-    // Using db.query and set_logs to match the rest of your file!
     const result = await db.query(queryText, [setId, id]);
 
     if (result.rowCount === 0) {
-      return res.status(404).json({ error: `Set with ID ${setId} not found in workout ${id}.` });
+      return res.status(404).json({ error: 'Set log target reference not found.' });
     }
 
     return res.status(200).json({ 

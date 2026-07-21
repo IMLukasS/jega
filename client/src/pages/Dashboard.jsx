@@ -10,19 +10,42 @@ export default function Dashboard() {
   const [newWorkoutName, setNewWorkoutName] = useState("");
 
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/workouts`)
+    const token = localStorage.getItem('token');
+
+    fetch(`${API_URL}/api/v1/workouts`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}` // 🛡️ Send the JWT token
+      }
+    })
       .then((res) => res.json())
       .then((data) => {
-        setWorkouts(data);
-        setLoading(false);
+        // 🔒 Defensive Check: Only update state if data is an Array
+        if (Array.isArray(data)) {
+          setWorkouts(data);
+        } else {
+          console.warn('Backend returned non-array (likely 401/403):', data);
+          setWorkouts([]); // Fallback to safe array
+        }
       })
-      .catch((err) => console.error('Error fetching history:', err));
+      .catch((err) => {
+        console.error('Error fetching history:', err);
+        setWorkouts([]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
 
   const handleDeleteWorkout = async (workoutId) => {
     try {
+      const token = localStorage.getItem('token');
       const response = await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // 🛡️ Send the JWT token on delete too
+        }
       });
 
       if (!response.ok) throw new Error("Failed to delete the workout record.");
@@ -33,14 +56,14 @@ export default function Dashboard() {
     }
   };
 
-  // ⏱️ NEW: Calculate Rolling 7-Day Stats dynamically
+  // ⏱️ Calculate Rolling 7-Day Stats dynamically
   const getWeeklyStats = () => {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     
-    // Filter workouts from the last 7 days
-    const weeklyWorkouts = workouts.filter(w => {
-      if (!w.started_at) return false;
+    // Safely filter workouts from the last 7 days
+    const weeklyWorkouts = (Array.isArray(workouts) ? workouts : []).filter(w => {
+      if (!w || !w.started_at) return false;
       const wDate = new Date(w.started_at);
       return wDate >= sevenDaysAgo && wDate <= now;
     });
@@ -84,7 +107,7 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* 📊 NEW: Weekly Stats Summary Panel */}
+      {/* 📊 Weekly Stats Summary Panel */}
       <div style={{ 
         background: '#2d2d34', 
         padding: '16px 20px', 

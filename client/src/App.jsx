@@ -1,29 +1,85 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import Dashboard from './pages/Dashboard'               // ---> NEW: Replaces WorkoutList
-import TemplatesPage from './pages/TemplatesPage'       // ---> NEW: Dedicated blueprint portal
-import WorkoutDetail from './pages/WorkoutDetail'
-import FocusWorkout from './components/FocusWorkout'
-import CreateTemplate from './pages/CreateTemplate'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Dashboard from './pages/Dashboard';
+import TemplatesPage from './pages/TemplatesPage';
+import WorkoutDetail from './pages/WorkoutDetail';
+import FocusWorkout from './components/FocusWorkout';
+import CreateTemplate from './pages/CreateTemplate';
+import AuthPage from './pages/AuthPage'; // 🔑 Import Auth Page
+
+// 🛡️ Security Bouncer for Frontend Routes
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem('token');
+  
+  if (!token) {
+    // If no JWT token is found, redirect straight to login
+    return <Navigate to="/login" replace />;
+  }
+  
+  return children;
+}
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* The landing page now points directly to your modern consistency dashboard */}
-        <Route path="/" element={<Dashboard />} />
-        
-        {/* The new dedicated channel for viewing and managing blueprint configurations */}
-        <Route path="/templates" element={<TemplatesPage />} />
-        
-        <Route path="/workouts/:id" element={<WorkoutDetail />} />
-        <Route path="/focus/:routineId" element={<FocusWorkout />} />
-        <Route path="/create-template" element={<CreateTemplate />} />
-        
-        {/* ✏️ NEW: The Edit Template route using the same multi-purpose builder */}
-        <Route path="/edit-template/:id" element={<CreateTemplate />} />
+        {/* 🔑 Public Auth Route */}
+        <Route path="/login" element={<AuthPage />} />
+
+        {/* 🔒 Protected Routes (Require active session) */}
+        <Route 
+          path="/" 
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/templates" 
+          element={
+            <ProtectedRoute>
+              <TemplatesPage />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/workouts/:id" 
+          element={
+            <ProtectedRoute>
+              <WorkoutDetail />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/focus/:routineId" 
+          element={
+            <ProtectedRoute>
+              <FocusWorkout />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/create-template" 
+          element={
+            <ProtectedRoute>
+              <CreateTemplate />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/edit-template/:id" 
+          element={
+            <ProtectedRoute>
+              <CreateTemplate />
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* ↪️ Catch-all: redirect any unknown URL back home */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
-  )
+  );
 }
 
-export default App
+export default App;

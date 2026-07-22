@@ -4,7 +4,8 @@ import TemplatesPage from './pages/TemplatesPage';
 import WorkoutDetail from './pages/WorkoutDetail';
 import FocusWorkout from './components/FocusWorkout';
 import CreateTemplate from './pages/CreateTemplate';
-import AuthPage from './pages/AuthPage'; // 🔑 Import Auth Page
+import AuthPage from './pages/AuthPage';
+import AccountPage from './pages/AccountPage'; // ⚙️ Import the new Account Page
 
 // 🛡️ Security Bouncer for Frontend Routes
 function ProtectedRoute({ children }) {
@@ -71,6 +72,16 @@ function App() {
           element={
             <ProtectedRoute>
               <CreateTemplate />
+            </ProtectedRoute>
+          } 
+        />
+        
+        {/* ⚙️ New Account Route */}
+        <Route 
+          path="/account" 
+          element={
+            <ProtectedRoute>
+              <AccountPage />
             </ProtectedRoute>
           } 
         />

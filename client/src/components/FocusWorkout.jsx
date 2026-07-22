@@ -7,6 +7,9 @@ export default function FocusWorkout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // ⚖️ Dynamically get saved weight unit preference
+  const weightUnitLabel = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase() === 'kg' ? 'Kg' : 'Lbs';
+
   const [routine, setRoutine] = useState(null);
   const [workoutId, setWorkoutId] = useState(null); 
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
@@ -359,12 +362,14 @@ export default function FocusWorkout() {
     }
   };
 
+  // ⚖️ Dynamic unit rendering for completed sets
   const renderCompletedSetText = (set, type) => {
+    const unit = weightUnitLabel.toLowerCase();
     if (type === 'time') return `${set.timeMin || 0}m ${set.timeSec || 0}s`;
     if (type === 'bodyweight_reps') return `${set.reps || 0} reps`;
-    if (type === 'time_weight') return `${set.weight || 0} lbs × ${set.timeMin || 0}m ${set.timeSec || 0}s`;
+    if (type === 'time_weight') return `${set.weight || 0} ${unit} × ${set.timeMin || 0}m ${set.timeSec || 0}s`;
     if (type === 'distance_time') return `${set.distance || 0} mi × ${set.timeMin || 0}m ${set.timeSec || 0}s`;
-    return `${set.weight || 0} lbs × ${set.reps || 0} reps`; 
+    return `${set.weight || 0} ${unit} × ${set.reps || 0} reps`; 
   };
 
   return (
@@ -456,14 +461,15 @@ export default function FocusWorkout() {
           ))}
         </div>
 
+        {/* ⚖️ Dynamic unit rendering for planned set goal */}
         {plannedSet && (
           <div style={{ backgroundColor: '#2d2d2d', padding: '12px', borderRadius: '8px', marginBottom: '12px', textAlign: 'center', color: '#4ade80', fontWeight: 'bold', fontSize: '1rem', border: '1px dashed #4ade80' }}>
             🎯 Goal for Set {currentSetIndex + 1}: 
             {activeExercise.tracking_type === 'time' ? ` ${plannedSet.time_minutes || 0}m ${plannedSet.time_seconds || 0}s`
             : activeExercise.tracking_type === 'bodyweight_reps' ? ` ${plannedSet.reps || 0} reps`
-            : activeExercise.tracking_type === 'time_weight' ? ` ${plannedSet.weight || 0} lbs for ${plannedSet.time_minutes || 0}m ${plannedSet.time_seconds || 0}s`
+            : activeExercise.tracking_type === 'time_weight' ? ` ${plannedSet.weight || 0} ${weightUnitLabel.toLowerCase()} for ${plannedSet.time_minutes || 0}m ${plannedSet.time_seconds || 0}s`
             : activeExercise.tracking_type === 'distance_time' ? ` ${plannedSet.distance || 0} mi in ${plannedSet.time_minutes || 0}m ${plannedSet.time_seconds || 0}s`
-            : ` ${plannedSet.weight || 0} lbs × ${plannedSet.reps || 0} reps`}
+            : ` ${plannedSet.weight || 0} ${weightUnitLabel.toLowerCase()} × ${plannedSet.reps || 0} reps`}
           </div>
         )}
 
@@ -508,7 +514,8 @@ export default function FocusWorkout() {
               <input type="number" placeholder="Reps" value={reps} onChange={(e) => setReps(e.target.value)} style={{ flex: 4, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
             ) : activeExercise.tracking_type === 'time_weight' ? (
               <>
-                <input type="number" placeholder="Lbs" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} style={{ flex: 2, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
+                {/* ⚖️ Updated dynamic placeholder */}
+                <input type="number" placeholder={weightUnitLabel} step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} style={{ flex: 2, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
                 <input type="number" placeholder="Min" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} style={{ flex: 1.5, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
                 <input type="number" placeholder="Sec" value={timeSec} onChange={(e) => setTimeSec(e.target.value)} style={{ flex: 1.5, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
               </>
@@ -520,7 +527,8 @@ export default function FocusWorkout() {
               </>
             ) : (
               <>
-                <input type="number" placeholder="Lbs" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} style={{ flex: 2, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
+                {/* ⚖️ Updated dynamic placeholder */}
+                <input type="number" placeholder={weightUnitLabel} step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} style={{ flex: 2, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
                 <input type="number" placeholder="Reps" value={reps} onChange={(e) => setReps(e.target.value)} style={{ flex: 2, minWidth: 0, backgroundColor: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '16px', color: '#fff', fontSize: '1.1rem', textAlign: 'center', outline: 'none' }} />
               </>
             )}
@@ -707,7 +715,6 @@ export default function FocusWorkout() {
                   </div>
                 )}
 
-                {/* 👇 Here are the closing tags that were cut off in your prompt 👇 */}
                 <div style={{ fontSize: '0.75rem', color: isActive ? '#444' : '#888', display: 'flex', justifyContent: 'space-between' }}>
                   <span>{setsDone}/{tSets} Sets</span>
                   {isCompleted && <span style={{ color: isActive ? '#10b981' : '#4ade80', fontWeight: 'bold' }}>✓</span>}

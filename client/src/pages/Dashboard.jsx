@@ -10,16 +10,14 @@ export default function Dashboard() {
   const [newWorkoutName, setNewWorkoutName] = useState("");
 
   useEffect(() => {
-    // 🧹 Cleaned up fetch to use fetchWithAuth
     fetchWithAuth('/api/v1/workouts')
       .then((res) => res.json())
       .then((data) => {
-        // 🔒 Defensive Check: Only update state if data is an Array
         if (Array.isArray(data)) {
           setWorkouts(data);
         } else {
           console.warn('Backend returned non-array (likely 401/403):', data);
-          setWorkouts([]); // Fallback to safe array
+          setWorkouts([]); 
         }
       })
       .catch((err) => {
@@ -33,7 +31,6 @@ export default function Dashboard() {
 
   const handleDeleteWorkout = async (workoutId) => {
     try {
-      // 🧹 Cleaned up delete to use fetchWithAuth
       const response = await fetchWithAuth(`/api/v1/workouts/${workoutId}`, {
         method: 'DELETE',
       });
@@ -46,19 +43,16 @@ export default function Dashboard() {
     }
   };
 
-  // ⏱️ Calculate Rolling 7-Day Stats dynamically
   const getWeeklyStats = () => {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     
-    // Safely filter workouts from the last 7 days
     const weeklyWorkouts = (Array.isArray(workouts) ? workouts : []).filter(w => {
       if (!w || !w.started_at) return false;
       const wDate = new Date(w.started_at);
       return wDate >= sevenDaysAgo && wDate <= now;
     });
 
-    // Sum up duration
     const totalSeconds = weeklyWorkouts.reduce((sum, w) => sum + (w.duration_seconds || 0), 0);
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
@@ -82,12 +76,17 @@ export default function Dashboard() {
 
   return (
     <div className="app-container">
-      <header>
-        <h1>Jega</h1>
-        <span className="subtitle">Dashboard</span>
+      {/* ⚙️ Updated Header with Account Link */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Jega</h1>
+          <span className="subtitle">Dashboard</span>
+        </div>
+        <Link to="/account" style={{ fontSize: '1.5rem', textDecoration: 'none' }} title="Account Settings">
+          ⚙️
+        </Link>
       </header>
 
-      {/* Modern High-Level Navigation Portal Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', marginBottom: '20px' }}>
         <Link to="/templates" style={{ 
           background: '#2d2d34', padding: '20px', borderRadius: '12px', textDecoration: 'none', color: '#fff', display: 'block' 
@@ -97,7 +96,6 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* 📊 Weekly Stats Summary Panel */}
       <div style={{ 
         background: '#2d2d34', 
         padding: '16px 20px', 
@@ -119,7 +117,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* The Central Consistency Heatmap Grid */}
       <WorkoutCalendarGrid workouts={workouts} onDeleteWorkout={handleDeleteWorkout} />
     </div>
   );

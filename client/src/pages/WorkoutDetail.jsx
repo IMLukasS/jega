@@ -31,6 +31,9 @@ const formatDuration = (totalSeconds) => {
 export default function WorkoutDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+
+  // ⚖️ Dynamically get saved weight unit preference
+  const weightUnitLabel = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase() === 'kg' ? 'Kg' : 'Lbs';
   
   const [workout, setWorkout] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -284,7 +287,8 @@ export default function WorkoutDetail() {
                           </>
                         ) : set.tracking_type === 'time_weight' ? (
                           <>
-                            <input type="number" step="0.1" placeholder="Lbs" value={editWeight} onChange={e => setEditWeight(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
+                            {/* ⚖️ Updated dynamic placeholder */}
+                            <input type="number" step="0.1" placeholder={weightUnitLabel} value={editWeight} onChange={e => setEditWeight(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                             <input type="number" placeholder="Min" value={editMin} onChange={e => setEditMin(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                             <input type="number" placeholder="Sec" value={editSec} onChange={e => setEditSec(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                           </>
@@ -292,7 +296,8 @@ export default function WorkoutDetail() {
                           <input type="number" placeholder="Reps" value={editReps} onChange={e => setEditReps(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                         ) : (
                           <>
-                            <input type="number" step="0.1" placeholder="Lbs" value={editWeight} onChange={e => setEditWeight(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
+                            {/* ⚖️ Updated dynamic placeholder */}
+                            <input type="number" step="0.1" placeholder={weightUnitLabel} value={editWeight} onChange={e => setEditWeight(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                             <input type="number" placeholder="Reps" value={editReps} onChange={e => setEditReps(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                           </>
                         )}
@@ -312,16 +317,17 @@ export default function WorkoutDetail() {
                         <span style={{ fontWeight: '600' }}>Set {index + 1}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <span style={{ fontWeight: 'bold' }}>
+                            {/* ⚖️ Updated unit rendering */}
                             {set.tracking_type === 'time' 
                               ? `${set.time_minutes || 0}m ${set.time_seconds || 0}s`
                             : set.tracking_type === 'distance_time' 
                               ? `${set.distance || 0} mi in ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
                             : set.tracking_type === 'time_weight'
-                              ? `${set.actual_weight_kg || 0} lbs for ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
+                              ? `${set.actual_weight_kg || 0} ${weightUnitLabel.toLowerCase()} for ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
                             : set.tracking_type === 'bodyweight_reps'
                               ? `${set.actual_reps || 0} reps`
                             : 
-                              `${set.actual_weight_kg || 0} lbs × ${set.actual_reps || 0} reps`
+                              `${set.actual_weight_kg || 0} ${weightUnitLabel.toLowerCase()} × ${set.actual_reps || 0} reps`
                             }
                           </span>
                           {set.rpe && <span style={{ color: '#888', fontSize: '0.85rem' }}>RPE {set.rpe}</span>}
@@ -352,8 +358,9 @@ export default function WorkoutDetail() {
       <div className="add-set-section">
         <h3>Log Freestyle Set</h3>
         <form onSubmit={handleAddSet} className="workout-form" style={{ marginTop: '10px' }}>
+          {/* ⚖️ Updated dynamic placeholder */}
           <input 
-            type="number" placeholder="lbs" step="0.1" required
+            type="number" placeholder={weightUnitLabel.toLowerCase()} step="0.1" required
             value={weight} onChange={(e) => setWeight(e.target.value)}
           />
           <input 

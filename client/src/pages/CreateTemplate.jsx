@@ -7,6 +7,9 @@ export default function CreateTemplate() {
   const { id } = useParams();
   const location = useLocation();
 
+  // ⚖️ Dynamically get saved weight unit preference
+  const weightUnitLabel = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase() === 'kg' ? 'Kg' : 'Lbs';
+
   const templateToEdit = location.state?.templateToEdit;
   const isEditMode = !!id && !!templateToEdit;
   
@@ -344,7 +347,8 @@ export default function CreateTemplate() {
                     <input type="number" placeholder="Reps" value={set.reps} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'reps', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                   ) : ex.tracking_type === 'time_weight' ? (
                     <>
-                      <input type="number" placeholder="Lbs" step="0.1" value={set.weight} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'weight', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
+                      {/* ⚖️ Updated placeholder */}
+                      <input type="number" placeholder={weightUnitLabel} step="0.1" value={set.weight} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'weight', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                       <input type="number" placeholder="Min" value={set.time_minutes} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'time_minutes', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                       <input type="number" placeholder="Sec" value={set.time_seconds} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'time_seconds', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                     </>
@@ -356,7 +360,8 @@ export default function CreateTemplate() {
                     </>
                   ) : (
                     <>
-                      <input type="number" placeholder="Lbs" step="0.1" value={set.weight} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'weight', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
+                      {/* ⚖️ Updated placeholder */}
+                      <input type="number" placeholder={weightUnitLabel} step="0.1" value={set.weight} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'weight', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                       <input type="number" placeholder="Reps" value={set.reps} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'reps', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                     </>
                   )}

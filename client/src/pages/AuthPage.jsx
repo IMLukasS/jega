@@ -12,6 +12,9 @@ export default function AuthPage() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // 👁️ Added state for password visibility
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -160,10 +163,10 @@ export default function AuthPage() {
             />
           </div>
 
-          <div>
+          <div style={{ position: 'relative' }}>
             <label style={{ display: 'block', color: '#a1a1aa', fontSize: '0.8rem', marginBottom: '4px' }}>Password</label>
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               name="password"
               value={formData.password}
               onChange={handleChange}
@@ -172,6 +175,7 @@ export default function AuthPage() {
               style={{
                 width: '100%',
                 padding: '10px',
+                paddingRight: '40px', // Room for the toggle icon
                 borderRadius: '6px',
                 background: '#1e1e24',
                 border: '1px solid #3e3e4a',
@@ -179,6 +183,23 @@ export default function AuthPage() {
                 boxSizing: 'border-box'
               }}
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '32px', // Align with the input box perfectly
+                background: 'transparent',
+                border: 'none',
+                color: '#a1a1aa',
+                cursor: 'pointer',
+                fontSize: '1.2rem',
+                padding: 0
+              }}
+            >
+              {showPassword ? 'X' : '👁️'}
+            </button>
           </div>
 
           <button

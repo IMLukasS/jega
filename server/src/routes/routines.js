@@ -26,8 +26,8 @@ router.get('/', auth, async (req, res) => {
       JOIN routine_exercises re ON r.id = re.routine_id
       JOIN exercises e ON re.exercise_id = e.id
       WHERE r.user_id = $1 -- 🔒 User Isolation Filter
-      GROUP BY r.id, r.name
-      ORDER BY r.created_at ASC;
+      GROUP BY r.id, r.name, r.display_order, r.created_at
+      ORDER BY r.display_order ASC, r.created_at ASC; -- 🔄 Added display_order sorting
     `;
     
     const result = await db.query(query, [req.user.id]);
@@ -68,7 +68,6 @@ router.get('/:id', auth, async (req, res) => {
     const result = await db.query(query, [routineId, req.user.id]);
     
     if (result.rows.length === 0) {
-      // Return a 404 to avoid leaking whether the record exists or just belongs to someone else
       return res.status(404).json({ error: 'Routine not found' });
     }
     
@@ -93,13 +92,20 @@ router.post('/', auth, async (req, res) => {
   try {
     await client.query('BEGIN'); 
 
-    // 1. Insert the parent routine mapped to the token's user_id
+    // Find the current max display_order so the new one drops at the bottom of the list
+    const maxOrderResult = await client.query(
+      'SELECT COALESCE(MAX(display_order), 0) as max_order FROM routines WHERE user_id = $1',
+      [req.user.id]
+    );
+    const nextOrder = maxOrderResult.rows[0].max_order + 1;
+
+    // 1. Insert the parent routine mapped to the token's user_id with next available display_order
     const routineQuery = `
-      INSERT INTO routines (name, user_id) 
-      VALUES ($1, $2) 
+      INSERT INTO routines (name, user_id, display_order) 
+      VALUES ($1, $2, $3) 
       RETURNING id, name;
     `;
-    const routineResult = await client.query(routineQuery, [name, req.user.id]);
+    const routineResult = await client.query(routineQuery, [name, req.user.id, nextOrder]);
     const newRoutine = routineResult.rows[0];
 
     // 2. Prepare the insertion query for the join table
@@ -171,6 +177,39 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+// 🔄 PUT /api/v1/routines/reorder
+// (MUST go before /:id so Express doesn't treat 'reorder' as a routine ID)
+router.put('/reorder', auth, async (req, res) => {
+  const { orderedIds } = req.body;
+
+  if (!Array.isArray(orderedIds)) {
+    return res.status(400).json({ error: 'orderedIds array is required.' });
+  }
+
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Loop through and update the order for each routine that belongs to this user
+    for (let i = 0; i < orderedIds.length; i++) {
+      await client.query(
+        'UPDATE routines SET display_order = $1 WHERE id = $2 AND user_id = $3',
+        [i, orderedIds[i], req.user.id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Routines reordered successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error reordering routines:', error);
+    res.status(500).json({ error: 'Failed to reorder routines' });
+  } finally {
+    client.release();
+  }
+});
+
 // PUT /api/v1/routines/:id
 // Updates an existing template if and only if the authenticated user owns it
 router.put('/:id', auth, async (req, res) => {
@@ -192,7 +231,6 @@ router.put('/:id', auth, async (req, res) => {
       [name, routineId, req.user.id]
     );
 
-    // BOLA Protection Check: If row count is zero, the routine either doesn't exist or belongs to another account
     if (routineResult.rows.length === 0) {
       return res.status(404).json({ error: 'Routine not found or access unauthorized.' });
     }

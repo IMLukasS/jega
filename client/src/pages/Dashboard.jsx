@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import WorkoutCalendarGrid from '../components/WorkoutCalendarGrid';
-import API_URL from '../api';
+import { fetchWithAuth } from '../apiClient';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -10,14 +10,8 @@ export default function Dashboard() {
   const [newWorkoutName, setNewWorkoutName] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-
-    fetch(`${API_URL}/api/v1/workouts`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}` // 🛡️ Send the JWT token
-      }
-    })
+    // 🧹 Cleaned up fetch to use fetchWithAuth
+    fetchWithAuth('/api/v1/workouts')
       .then((res) => res.json())
       .then((data) => {
         // 🔒 Defensive Check: Only update state if data is an Array
@@ -39,13 +33,9 @@ export default function Dashboard() {
 
   const handleDeleteWorkout = async (workoutId) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
+      // 🧹 Cleaned up delete to use fetchWithAuth
+      const response = await fetchWithAuth(`/api/v1/workouts/${workoutId}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // 🛡️ Send the JWT token on delete too
-        }
       });
 
       if (!response.ok) throw new Error("Failed to delete the workout record.");

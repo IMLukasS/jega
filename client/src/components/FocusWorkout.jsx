@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom'; // 💡 Added useLocation
-import API_URL from '../api';
-
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { fetchWithAuth } from '../apiClient';
 
 export default function FocusWorkout() {
   const { routineId } = useParams(); 
   const navigate = useNavigate();
-  const location = useLocation(); // 💡 Access state passed from the home screen
+  const location = useLocation();
 
   const [routine, setRoutine] = useState(null);
   const [workoutId, setWorkoutId] = useState(null); 
-const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
+  const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     if (savedSession && savedSession.routineId === routineId && savedSession.activeIndex !== undefined) {
       return savedSession.activeIndex;
@@ -18,7 +17,6 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     return 0;
   });
   
-  // 🏃‍♂️ NEW: Dynamic tracking style for Freestyle Mode (default to lifting)
   const [freestyleTrackingType, setFreestyleTrackingType] = useState('weight_reps');
 
   // States to handle all "Big 5" input types
@@ -29,7 +27,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
   const [distance, setDistance] = useState('');
   const [rpe, setRpe] = useState('');
 
-    const [allCompletedSets, setAllCompletedSets] = useState(() => {
+  const [allCompletedSets, setAllCompletedSets] = useState(() => {
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     if (savedSession && savedSession.routineId === routineId && savedSession.completedSets) {
       return savedSession.completedSets;
@@ -39,7 +37,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
   const [editingSetIndex, setEditingSetIndex] = useState(null);
   const sessionStarted = useRef(false);
 
-// ⏱️ NEW: Elapsed Time Stopwatch State (Persistent)
+  // Live Elapsed Stopwatch State
   const [elapsedSeconds, setElapsedSeconds] = useState(() => {
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     if (savedSession && savedSession.startTime) {
@@ -48,11 +46,11 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     return 0;
   });
 
-  // ⏱️ NEW: Rest Timer States
+  // Rest Timer States
   const [restTimeLeft, setRestTimeLeft] = useState(0);
   const [isRestTimerRunning, setIsRestTimerRunning] = useState(false);
 
-  // ⏱️ NEW: Rest Countdown Engine
+  // Rest Countdown Engine
   useEffect(() => {
     let interval = null;
     if (isRestTimerRunning && restTimeLeft > 0) {
@@ -65,33 +63,30 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     return () => clearInterval(interval);
   }, [isRestTimerRunning, restTimeLeft]);
 
-  // ⏱️ NEW: Format rest seconds to MM:SS (e.g., 90 -> "01:30")
   const formatRestDisplay = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // ⏱️ NEW: Quick Start Trigger
   const startRestTimer = (seconds) => {
     setRestTimeLeft(seconds);
     setIsRestTimerRunning(true);
   };
 
-  // 💾 NEW: Autosave UI state to localStorage
+  // Autosave UI state to localStorage
   useEffect(() => {
-    if (!workoutId) return; // Wait until the session is fully established
+    if (!workoutId) return;
 
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     if (savedSession) {
-      // Update the cache with your current UI progress
       savedSession.completedSets = allCompletedSets;
       savedSession.activeIndex = activeExerciseIndex;
       localStorage.setItem('activeWorkoutSession', JSON.stringify(savedSession));
     }
   }, [allCompletedSets, activeExerciseIndex, workoutId]);
 
-  // ⏱️ NEW: Running interval tracking side-effect
+  // Stopwatch interval
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setElapsedSeconds(prev => prev + 1);
@@ -100,7 +95,6 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     return () => clearInterval(timerInterval);
   }, []);
 
-  // ⏱️ NEW: Monospace clean layout timestamp formatter
   const formatTime = (totalSeconds) => {
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
@@ -118,7 +112,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     const isResuming = savedSession && savedSession.routineId === routineId;
 
-    // 🚀 Handle Freestyle Mode
+    // Handle Freestyle Mode
     if (routineId === 'freestyle') {
       const freestyleMock = {
         name: location.state?.customName || 'Freestyle Workout',
@@ -140,9 +134,9 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
           workoutId: location.state.existingWorkoutId, routineId, startTime: Date.now() 
         }));
       } else {
-        fetch(`${API_URL}/api/v1/workouts`, {
+        // 🧹 Cleaned up freestyle start
+        fetchWithAuth('/api/v1/workouts', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Freestyle Session', routine_id: null })
         })
         .then((res) => res.json())
@@ -157,36 +151,35 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
       return; 
     }
 
-    // 📋 Standard Template Mode
-    fetch(`${API_URL}/api/v1/routines/${routineId}`)
-    .then((res) => res.json())
-    .then(async (data) => {
-        const selectedRoutine = data.find((r) => r.id === routineId);
-        if (!selectedRoutine) return;
-        setRoutine(selectedRoutine);
+    // Standard Template Mode (🧹 Cleaned up API call)
+    fetchWithAuth(`/api/v1/routines/${routineId}`)
+      .then((res) => res.json())
+      .then(async (data) => {
+          const selectedRoutine = Array.isArray(data) 
+            ? data.find((r) => r.id === routineId) 
+            : data;
 
-        if (isResuming) {
-          // Resume existing session, do not make a POST request!
-          setWorkoutId(savedSession.workoutId);
-        } else {
-          // Create new session
-          const startSessionRes = await fetch(`${API_URL}/api/v1/workouts`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: `${selectedRoutine.name} Session`, routine_id: selectedRoutine.id })
-          });
-          const sessionData = await startSessionRes.json();
-          setWorkoutId(sessionData.id);
-          
-          // Save to local storage for crash protection
-          localStorage.setItem('activeWorkoutSession', JSON.stringify({ 
-            workoutId: sessionData.id, routineId, startTime: Date.now() 
-          }));
-        }
-    });
-  }, [routineId, location.state]);
+          if (!selectedRoutine) return;
+          setRoutine(selectedRoutine);
 
-  // Dynamically intercept and swap the active exercise's style when in Freestyle mode
+          if (isResuming) {
+            setWorkoutId(savedSession.workoutId);
+          } else {
+            // 🧹 Cleaned up start session
+            const startSessionRes = await fetchWithAuth('/api/v1/workouts', {
+              method: 'POST',
+              body: JSON.stringify({ name: `${selectedRoutine.name} Session`, routine_id: selectedRoutine.id })
+            });
+            const sessionData = await startSessionRes.json();
+            setWorkoutId(sessionData.id);
+            
+            localStorage.setItem('activeWorkoutSession', JSON.stringify({ 
+              workoutId: sessionData.id, routineId, startTime: Date.now() 
+            }));
+          }
+      });
+  }, [routineId, location.state, freestyleTrackingType]);
+
   const activeExercise = routine?.exercises?.[activeExerciseIndex];
   if (activeExercise && routineId === 'freestyle') {
     activeExercise.tracking_type = freestyleTrackingType;
@@ -214,36 +207,33 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
       setDistance('');
       setRpe('');
     }
-  }, [activeExerciseIndex, currentSetIndex, plannedSet, editingSetIndex, freestyleTrackingType]); // Added tracking type to reset fields safely
+  }, [activeExerciseIndex, currentSetIndex, plannedSet, editingSetIndex, freestyleTrackingType]);
 
   const handleCancelWorkout = async () => {
     const isSure = window.confirm("Are you sure you want to cancel? This will delete the workout entirely.");
     if (!isSure) return;
 
-    // 1. Wipe the local cache so it doesn't resume
     localStorage.removeItem('activeWorkoutSession');
 
-    // 2. Delete the accidental database entry
     try {
-      await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
-        method: 'DELETE',
+      // 🧹 Cleaned up delete workout
+      await fetchWithAuth(`/api/v1/workouts/${workoutId}`, {
+        method: 'DELETE'
       });
     } catch (error) {
       console.error("Failed to delete canceled workout:", error);
     }
 
-    // 3. Kick them back to the templates page
     navigate('/templates');
   };
 
   const handleFinalizeWorkout = async () => {
-    // 🧹 NEW: Clear the active session so it doesn't accidentally resume next time
     localStorage.removeItem('activeWorkoutSession');
 
     try {
-      await fetch(`${API_URL}/api/v1/workouts/${workoutId}`, {
+      // 🧹 Cleaned up finalize workout
+      await fetchWithAuth(`/api/v1/workouts/${workoutId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ duration_seconds: elapsedSeconds })
       });
     } catch (error) {
@@ -275,15 +265,13 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     };
 
     try {
-      const url = isEditing 
-        ? `${API_URL}/api/v1/workouts/${workoutId}/sets/${currentCompletedSets[editingSetIndex].id}`
-        : `${API_URL}/api/v1/workouts/${workoutId}/sets`;
+      const endpoint = isEditing 
+        ? `/api/v1/workouts/${workoutId}/sets/${currentCompletedSets[editingSetIndex].id}`
+        : `/api/v1/workouts/${workoutId}/sets`;
 
-      const method = isEditing ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method: method,
-        headers: { 'Content-Type': 'application/json' },
+      // 🧹 Cleaned up log set
+      const response = await fetchWithAuth(endpoint, {
+        method: isEditing ? 'PUT' : 'POST',
         body: JSON.stringify(payload)
       });
 
@@ -321,23 +309,21 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
     const isSure = window.confirm("Are you sure you want to delete this set?");
     if (!isSure) return;
 
-    // Grab the actual database ID of the set we are editing
     const setToDelete = currentCompletedSets[editingSetIndex];
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/workouts/${workoutId}/sets/${setToDelete.id}`, {
-        method: 'DELETE',
+      // 🧹 Cleaned up delete set
+      const response = await fetchWithAuth(`/api/v1/workouts/${workoutId}/sets/${setToDelete.id}`, {
+        method: 'DELETE'
       });
 
       if (response.ok) {
-        // Remove it from the local state (which will auto-trigger your localStorage save!)
         setAllCompletedSets(prev => {
           const updated = [...prev[activeExerciseIndex]];
-          updated.splice(editingSetIndex, 1); // Remove the 1 set at this index
+          updated.splice(editingSetIndex, 1);
           return { ...prev, [activeExerciseIndex]: updated };
         });
         
-        // Snap out of edit mode
         setEditingSetIndex(null); 
       } else {
         alert("Failed to delete set.");
@@ -363,7 +349,6 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
   };
 
   const handleNextExercise = () => {
-    // 🧹 NEW: Clear the rest timer when moving to a completely new exercise
     setRestTimeLeft(0);
     setIsRestTimerRunning(false);
 
@@ -390,7 +375,6 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <h2 style={{ fontSize: '1.2rem', color: '#fff', margin: 0 }}>{routine.name}</h2>
           
-          {/* ⏱️ Top Left Running Live Stopwatch Widget */}
           <div style={{
             backgroundColor: '#2d2d34',
             color: '#10b981',
@@ -405,18 +389,18 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
         </div>
 
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-        <button 
+          <button 
             onClick={handleCancelWorkout}
             style={{ backgroundColor: 'transparent', color: '#888', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
-        >
+          >
             Cancel
-        </button>
-        <button 
+          </button>
+          <button 
             onClick={handleFinalizeWorkout}
             style={{ backgroundColor: 'transparent', color: '#10b981', border: 'none', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer' }}
-        >
+          >
             Finish
-        </button>
+          </button>
         </div>
       </div>
 
@@ -483,7 +467,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
           </div>
         )}
 
-        {/* 🏃‍♂️ Dynamic Style Switcher (Only visible during Freestyle sessions) */}
+        {/* Dynamic Style Switcher (Freestyle mode) */}
         {routineId === 'freestyle' && (
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', justifyContent: 'center' }}>
             {['weight_reps', 'time', 'distance_time'].map((type) => (
@@ -567,45 +551,43 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
 
           <div style={{ display: 'flex', gap: '12px' }}>
             {editingSetIndex !== null && (
-                <>
+              <>
                 <button 
-                    type="button" 
-                    onClick={handleCancelEdit}
-                    style={{ backgroundColor: '#444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
+                  type="button" 
+                  onClick={handleCancelEdit}
+                  style={{ backgroundColor: '#444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
                 >
-                    Cancel
+                  Cancel
                 </button>
                 
-                {/* 🗑️ NEW: Delete button alongside Cancel */}
                 <button 
-                    type="button" 
-                    onClick={handleDeleteActiveSet}
-                    style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
+                  type="button" 
+                  onClick={handleDeleteActiveSet}
+                  style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 1 }}
                 >
-                    Delete
+                  Delete
                 </button>
-                </>
+              </>
             )}
             
             <button 
-                type="submit" 
-                style={{ backgroundColor: editingSetIndex !== null ? '#eab308' : '#111', color: editingSetIndex !== null ? '#111' : '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 2 }}
+              type="submit" 
+              style={{ backgroundColor: editingSetIndex !== null ? '#eab308' : '#111', color: editingSetIndex !== null ? '#111' : '#fff', border: 'none', borderRadius: '8px', padding: '16px', fontWeight: 'bold', fontSize: '1.1rem', flex: 2 }}
             >
-                {editingSetIndex !== null ? `Update Set ${editingSetIndex + 1}` : 'Log Set'}
+              {editingSetIndex !== null ? `Update Set ${editingSetIndex + 1}` : 'Log Set'}
             </button>
-            </div>
-
+          </div>
         </form>
 
         {/* Next Exercise Button */}
         <button 
           onClick={handleNextExercise}
-          style={{ width: '100%', padding: '16px', backgroundColor: isLastExercise ? '#4ade80' : '#2563eb', color: isLastExercise ? '#111' : '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1.1rem' }}
+          style={{ width: '100%', padding: '16px', backgroundColor: isLastExercise ? '#4ade80' : '#2563eb', color: isLastExercise ? '#111' : '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer' }}
         >
           {isLastExercise ? "Finish Workout 🎉" : "Next Exercise ➔"}
         </button>
 
-        {/* ⏱️ NEW: Manual Rest Timer Component Block */}
+        {/* Manual Rest Timer Block */}
         <div style={{
           backgroundColor: '#111',
           border: '1px solid #2d2d2d',
@@ -666,7 +648,7 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
         </div>
       </div>
 
-      {/* BOTTOM NAVIGATION: The Horizontal Timeline */}
+      {/* BOTTOM NAVIGATION: Horizontal Timeline */}
       <div style={{ marginTop: 'auto' }}>
         <h3 style={{ fontSize: '0.85rem', color: '#888', textTransform: 'uppercase', marginBottom: '12px' }}>Workout Timeline</h3>
         <div style={{ 
@@ -725,16 +707,16 @@ const [activeExerciseIndex, setActiveExerciseIndex] = useState(() => {
                   </div>
                 )}
 
+                {/* 👇 Here are the closing tags that were cut off in your prompt 👇 */}
                 <div style={{ fontSize: '0.75rem', color: isActive ? '#444' : '#888', display: 'flex', justifyContent: 'space-between' }}>
                   <span>{setsDone}/{tSets} Sets</span>
-                  {isCompleted && <span style={{ color: isActive ? '#10b981' : '#4ade80' }}>✓</span>}
+                  {isCompleted && <span style={{ color: isActive ? '#10b981' : '#4ade80', fontWeight: 'bold' }}>✓</span>}
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-
     </div>
   );
 }

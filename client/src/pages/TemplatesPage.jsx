@@ -1,20 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import API_URL from '../api';
+import { fetchWithAuth } from '../apiClient';
 
 export default function TemplatesPage() {
   const [routines, setRoutines] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-
-    fetch(`${API_URL}/api/v1/routines`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}` // 🛡️ Attach JWT token
-      }
-    })
+    // 🧹 Cleaned up fetch to use fetchWithAuth
+    fetchWithAuth('/api/v1/routines')
       .then((res) => res.json())
       .then((data) => {
         // 🔒 Defensive Check: Only update state if response is an Array
@@ -38,13 +32,9 @@ export default function TemplatesPage() {
     if (!window.confirm("Are you sure you want to permanently delete this blueprint template?")) return;
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/routines/${templateId}`, { 
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // 🛡️ Attach JWT token for deletion
-        }
+      // 🧹 Cleaned up delete to use fetchWithAuth
+      const response = await fetchWithAuth(`/api/v1/routines/${templateId}`, { 
+        method: 'DELETE'
       });
 
       if (response.ok) {

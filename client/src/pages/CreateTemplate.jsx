@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom'; // 💡 Added useParams and useLocation
-import API_URL from '../api';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { fetchWithAuth } from '../apiClient';
 
 export default function CreateTemplate() {
   const navigate = useNavigate();
-  const { id } = useParams(); // 💡 Captures the template ID from the URL if editing
+  const { id } = useParams();
   const location = useLocation();
 
-  // 💡 Check if we're editing based on route params and passed location state
   const templateToEdit = location.state?.templateToEdit;
   const isEditMode = !!id && !!templateToEdit;
   
@@ -26,18 +25,15 @@ export default function CreateTemplate() {
   const [selectedEquipment, setSelectedEquipment] = useState('');
   const [expandedExerciseId, setExpandedExerciseId] = useState(null);
 
-  // 💡 NEW: Pre-populate form state if in Edit Mode
   useEffect(() => {
     if (isEditMode && templateToEdit) {
       setName(templateToEdit.name);
       
-      // Convert database structure to match form state structure
       const formattedExercises = templateToEdit.exercises.map(ex => ({
         exercise_id: ex.exercise_id || ex.id,
         name: ex.name,
         tracking_type: ex.tracking_type || 'weight_reps',
         tags: ex.tags || [],
-        // Safely convert numerical 0s back into friendly empty strings for inputs
         sets: (ex.sets || []).map(set => ({
           weight: set.weight !== 0 && set.weight != null ? String(set.weight) : '',
           reps: set.reps !== 0 && set.reps != null ? String(set.reps) : '',
@@ -50,11 +46,12 @@ export default function CreateTemplate() {
     }
   }, [isEditMode, templateToEdit]);
 
+  // 🧹 Cleaned up exercise fetch to use fetchWithAuth
   useEffect(() => {
     if (isModalOpen && availableExercises.length === 0) {
-      fetch(`${API_URL}/api/v1/exercises`)
+      fetchWithAuth('/api/v1/exercises')
         .then(res => res.json())
-        .then(data => setAvailableExercises(data))
+        .then(data => setAvailableExercises(Array.isArray(data) ? data : []))
         .catch(err => console.error("Error fetching exercises:", err));
     }
   }, [isModalOpen, availableExercises.length]);
@@ -187,7 +184,6 @@ export default function CreateTemplate() {
     setExercises(newExercises);
   };
 
-  // 💡 MODIFIED: Dynamically targets PUT (update) or POST (create)
   const handleSaveTemplate = async () => {
     if (!name.trim() || exercises.length === 0) {
       alert("Please provide a name and at least one exercise.");
@@ -211,16 +207,15 @@ export default function CreateTemplate() {
       }))
     }));
 
-    // 💡 Toggle properties based on our current mode
-    const url = isEditMode 
-      ? `${API_URL}/api/v1/routines/${id}` 
-      : `${API_URL}/api/v1/routines`;
+    const endpoint = isEditMode 
+      ? `/api/v1/routines/${id}` 
+      : `/api/v1/routines`;
     const method = isEditMode ? 'PUT' : 'POST';
 
     try {
-      const response = await fetch(url, {
+      // 🧹 Cleaned up saving the routine to use fetchWithAuth
+      const response = await fetchWithAuth(endpoint, {
         method: method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, exercises: sanitizedExercises }) 
       });
 
@@ -245,7 +240,6 @@ export default function CreateTemplate() {
         >
           ← Back to Workouts
         </button>
-        {/* 💡 Dynamic Page Title */}
         <h1>{isEditMode ? 'Edit Workout Template' : 'Create Workout'}</h1>
       </header>
 
@@ -261,7 +255,6 @@ export default function CreateTemplate() {
         {exercises.map((ex, exIndex) => (
           <div key={exIndex} style={{ background: '#1e1e1e', border: '1px solid #2d2d2d', borderRadius: '12px', padding: '16px' }}>
             
-            {/* Exercise Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -282,7 +275,6 @@ export default function CreateTemplate() {
                   </select>
                 </div>
                 
-                {/* Tag Bubbles and Input UI */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
                   {(ex.tags || []).map((tag, tagIndex) => (
                     <span key={tagIndex} style={{ background: '#2563eb', color: '#fff', padding: '4px 10px', borderRadius: '16px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
@@ -313,7 +305,6 @@ export default function CreateTemplate() {
                 </div>
               </div>
 
-              {/* Reorder and Delete Controls */}
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 {exIndex > 0 && (
                   <button 
@@ -339,7 +330,6 @@ export default function CreateTemplate() {
               </div>
             </div>
 
-            {/* Dynamic Set Rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
               {ex.sets.map((set, setIndex) => (
                 <div key={setIndex} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -390,7 +380,6 @@ export default function CreateTemplate() {
         ))}
       </div>
 
-      {/* Add Exercise Search Bar */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
         <input 
           type="text" placeholder="Type custom or pick..."
@@ -407,7 +396,6 @@ export default function CreateTemplate() {
         >Add</button>
       </div>
 
-      {/* 💡 Dynamic Main Button Text */}
       <button 
         onClick={handleSaveTemplate}
         style={{ width: '100%', padding: '20px', background: '#4ade80', color: '#111', fontSize: '1.2rem', fontWeight: 'bold', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
@@ -415,7 +403,6 @@ export default function CreateTemplate() {
         {isEditMode ? 'Save Changes' : 'Save Template'}
       </button>
 
-      {/* Exercise Selection Modal */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' }}>
           <div style={{ background: '#1e1e1e', width: '100%', maxWidth: '480px', maxHeight: '85vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #2d2d2d' }}>

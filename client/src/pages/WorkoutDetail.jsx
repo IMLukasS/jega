@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import API_URL from '../api';
+import { fetchWithAuth } from '../apiClient';
 
 const formatDate = (isoString) => {
   if (!isoString) return '';
@@ -12,7 +12,7 @@ const formatDate = (isoString) => {
   }).format(date);
 };
 
-// ⏱️ NEW: Format raw duration seconds into a clean human-readable log string
+// ⏱️ Format raw duration seconds into a clean human-readable log string
 const formatDuration = (totalSeconds) => {
   if (!totalSeconds) return '';
   const hrs = Math.floor(totalSeconds / 3600);
@@ -52,7 +52,8 @@ export default function WorkoutDetail() {
   const [editRpe, setEditRpe] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/api/v1/workouts/${id}`)
+    // 🧹 Cleaned up: Just pass the endpoint to our wrapper!
+    fetchWithAuth(`/api/v1/workouts/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load workout');
         return res.json();
@@ -74,9 +75,9 @@ export default function WorkoutDetail() {
 
     const nextSetNumber = workout.sets ? workout.sets.length + 1 : 1;
 
-    fetch(`${API_URL}/api/v1/workouts/${id}/sets`, {
+    // 🧹 Cleaned up: No headers needed, the wrapper does it.
+    fetchWithAuth(`/api/v1/workouts/${id}/sets`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         exercise_id: exerciseId,
         set_number: nextSetNumber,
@@ -107,9 +108,9 @@ export default function WorkoutDetail() {
 
   const handleUpdateHistorySet = async (setId) => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/workouts/${id}/sets/${setId}`, {
+      // 🧹 Cleaned up: Wrapper handles token and Content-Type.
+      const response = await fetchWithAuth(`/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           actual_weight_kg: editWeight === '' ? 0 : Number(editWeight),
           actual_reps: editReps === '' ? 0 : Number(editReps),
@@ -143,23 +144,22 @@ export default function WorkoutDetail() {
     }
   };
 
-  // 🗑️ NEW: Delete a specific set from history
   const handleDeleteHistorySet = async (setId) => {
     const isSure = window.confirm("Are you sure you want to delete this set?");
     if (!isSure) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/workouts/${id}/sets/${setId}`, {
-        method: 'DELETE',
+      // 🧹 Cleaned up: Shortest request of them all!
+      const response = await fetchWithAuth(`/api/v1/workouts/${id}/sets/${setId}`, {
+        method: 'DELETE'
       });
 
       if (response.ok) {
-        // Instantly remove it from the UI
         setWorkout(prev => ({
           ...prev,
           sets: prev.sets.filter(s => s.id !== setId)
         }));
-        setEditingSetId(null); // Close the edit drawer
+        setEditingSetId(null); 
       } else {
         alert("Failed to delete the set. Make sure the backend is running.");
       }
@@ -195,7 +195,7 @@ export default function WorkoutDetail() {
     return acc;
   }, {});
 
-  // 💡 NEW FIX: Sort the entire exercise dictionary by its structural sequence_order
+  // Sort the entire exercise dictionary by its structural sequence_order
   const orderedGroupedEntries = Object.entries(groupedSets).sort((a, b) => {
     const orderA = a[1][0]?.sequence_order ?? 999;
     const orderB = b[1][0]?.sequence_order ?? 999;
@@ -212,7 +212,7 @@ export default function WorkoutDetail() {
           ← Back to History
         </button>
         
-        {/* ⏱️ MODIFIED: Title and stopwatch duration alignment flex row */}
+        {/* Title and stopwatch duration alignment flex row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '4px' }}>
           <h1 style={{ margin: 0 }}>{workout.name}</h1>
           
@@ -302,10 +302,8 @@ export default function WorkoutDetail() {
                         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
                         <button onClick={() => handleUpdateHistorySet(set.id)} style={{ backgroundColor: '#4ade80', color: '#111', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
                         
-                        {/* 🗑️ NEW: Delete Set Button */}
                         <button onClick={() => handleDeleteHistorySet(set.id)} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Delete</button>
                         
-                        {/* Changed Cancel button to dark gray */}
                         <button onClick={() => setEditingSetId(null)} style={{ backgroundColor: '#444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
                         </div>
                       </div>
@@ -351,7 +349,6 @@ export default function WorkoutDetail() {
 
       <hr style={{ border: '0', borderTop: '1px solid #2d2d2d', margin: '24px 0' }} />
 
-      {/* Freestyle Add Set Form Layout */}
       <div className="add-set-section">
         <h3>Log Freestyle Set</h3>
         <form onSubmit={handleAddSet} className="workout-form" style={{ marginTop: '10px' }}>

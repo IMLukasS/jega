@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../apiClient';
+import { toBaseKg, toDisplayWeight } from '../utils/unitConverter';
 
 const formatDate = (isoString) => {
   if (!isoString) return '';
@@ -33,7 +34,8 @@ export default function WorkoutDetail() {
   const navigate = useNavigate();
 
   // ⚖️ Dynamically get saved weight unit preference
-  const weightUnitLabel = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase() === 'kg' ? 'Kg' : 'Lbs';
+  const userUnit = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase();
+  const weightUnitLabel = userUnit === 'kg' ? 'Kg' : 'Lbs';
   
   const [workout, setWorkout] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +57,6 @@ export default function WorkoutDetail() {
   const [editRpe, setEditRpe] = useState('');
 
   useEffect(() => {
-    // 🧹 Cleaned up: Just pass the endpoint to our wrapper!
     fetchWithAuth(`/api/v1/workouts/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load workout');
@@ -78,13 +79,15 @@ export default function WorkoutDetail() {
 
     const nextSetNumber = workout.sets ? workout.sets.length + 1 : 1;
 
-    // 🧹 Cleaned up: No headers needed, the wrapper does it.
+    // ⚖️ Convert typed weight (Lbs or Kg) into base kilograms for backend API
+    const baseKg = toBaseKg(weight, userUnit);
+
     fetchWithAuth(`/api/v1/workouts/${id}/sets`, {
       method: 'POST',
       body: JSON.stringify({
         exercise_id: exerciseId,
         set_number: nextSetNumber,
-        actual_weight_kg: parseFloat(weight),
+        actual_weight_kg: baseKg,
         actual_reps: parseInt(reps, 10),
         rpe: rpe ? parseFloat(rpe) : null
       })
@@ -111,11 +114,13 @@ export default function WorkoutDetail() {
 
   const handleUpdateHistorySet = async (setId) => {
     try {
-      // 🧹 Cleaned up: Wrapper handles token and Content-Type.
+      // ⚖️ Convert edited weight (Lbs or Kg) back to base kilograms for API
+      const baseKg = editWeight === '' ? 0 : toBaseKg(editWeight, userUnit);
+
       const response = await fetchWithAuth(`/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'PUT',
         body: JSON.stringify({
-          actual_weight_kg: editWeight === '' ? 0 : Number(editWeight),
+          actual_weight_kg: baseKg,
           actual_reps: editReps === '' ? 0 : Number(editReps),
           time_minutes: editMin === '' ? 0 : Number(editMin),
           time_seconds: editSec === '' ? 0 : Number(editSec),
@@ -131,7 +136,7 @@ export default function WorkoutDetail() {
           ...prev,
           sets: prev.sets.map(s => s.id === setId ? { 
             ...s, 
-            actual_weight_kg: updatedSet.actual_weight_kg,
+            actual_weight_kg: updatedSet.actual_weight_kg ?? baseKg,
             actual_reps: updatedSet.actual_reps,
             time_minutes: updatedSet.time_minutes,
             time_seconds: updatedSet.time_seconds,
@@ -152,7 +157,6 @@ export default function WorkoutDetail() {
     if (!isSure) return;
 
     try {
-      // 🧹 Cleaned up: Shortest request of them all!
       const response = await fetchWithAuth(`/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'DELETE'
       });
@@ -173,7 +177,13 @@ export default function WorkoutDetail() {
 
   const startInlineEdit = (set) => {
     setEditingSetId(set.id);
-    setEditWeight(set.actual_weight_kg ?? '');
+
+    // ⚖️ Dynamically format editing weight to active user preference unit
+    const displayWeight = set.actual_weight_kg != null 
+      ? String(toDisplayWeight(set.actual_weight_kg, userUnit)) 
+      : '';
+
+    setEditWeight(displayWeight);
     setEditReps(set.actual_reps ?? '');
     setEditMin(set.time_minutes ?? '');
     setEditSec(set.time_seconds ?? '');
@@ -266,6 +276,7 @@ export default function WorkoutDetail() {
               {/* Individual Sets */}
               {setsForExercise.map((set, index) => {
                 const isEditingRow = editingSetId === set.id;
+                const displayWeight = toDisplayWeight(set.actual_weight_kg || 0, userUnit);
 
                 return (
                   <div key={set.id} className="workout-card" style={{ padding: '12px', marginBottom: '8px' }}>
@@ -287,7 +298,6 @@ export default function WorkoutDetail() {
                           </>
                         ) : set.tracking_type === 'time_weight' ? (
                           <>
-                            {/* ⚖️ Updated dynamic placeholder */}
                             <input type="number" step="0.1" placeholder={weightUnitLabel} value={editWeight} onChange={e => setEditWeight(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                             <input type="number" placeholder="Min" value={editMin} onChange={e => setEditMin(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                             <input type="number" placeholder="Sec" value={editSec} onChange={e => setEditSec(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
@@ -296,7 +306,6 @@ export default function WorkoutDetail() {
                           <input type="number" placeholder="Reps" value={editReps} onChange={e => setEditReps(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                         ) : (
                           <>
-                            {/* ⚖️ Updated dynamic placeholder */}
                             <input type="number" step="0.1" placeholder={weightUnitLabel} value={editWeight} onChange={e => setEditWeight(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                             <input type="number" placeholder="Reps" value={editReps} onChange={e => setEditReps(e.target.value)} style={{ width: '65px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
                           </>
@@ -305,11 +314,11 @@ export default function WorkoutDetail() {
                         <input type="number" step="0.5" max="10" placeholder="RPE" value={editRpe} onChange={e => setEditRpe(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#888', border: '1px solid #444', textAlign: 'center' }} />
 
                         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
-                        <button onClick={() => handleUpdateHistorySet(set.id)} style={{ backgroundColor: '#4ade80', color: '#111', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
-                        
-                        <button onClick={() => handleDeleteHistorySet(set.id)} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Delete</button>
-                        
-                        <button onClick={() => setEditingSetId(null)} style={{ backgroundColor: '#444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
+                          <button onClick={() => handleUpdateHistorySet(set.id)} style={{ backgroundColor: '#4ade80', color: '#111', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
+                          
+                          <button onClick={() => handleDeleteHistorySet(set.id)} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Delete</button>
+                          
+                          <button onClick={() => setEditingSetId(null)} style={{ backgroundColor: '#444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
                         </div>
                       </div>
                     ) : (
@@ -317,17 +326,17 @@ export default function WorkoutDetail() {
                         <span style={{ fontWeight: '600' }}>Set {index + 1}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <span style={{ fontWeight: 'bold' }}>
-                            {/* ⚖️ Updated unit rendering */}
+                            {/* ⚖️ Dynamically rendered converted weight */}
                             {set.tracking_type === 'time' 
                               ? `${set.time_minutes || 0}m ${set.time_seconds || 0}s`
                             : set.tracking_type === 'distance_time' 
                               ? `${set.distance || 0} mi in ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
                             : set.tracking_type === 'time_weight'
-                              ? `${set.actual_weight_kg || 0} ${weightUnitLabel.toLowerCase()} for ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
+                              ? `${displayWeight} ${weightUnitLabel.toLowerCase()} for ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
                             : set.tracking_type === 'bodyweight_reps'
                               ? `${set.actual_reps || 0} reps`
                             : 
-                              `${set.actual_weight_kg || 0} ${weightUnitLabel.toLowerCase()} × ${set.actual_reps || 0} reps`
+                              `${displayWeight} ${weightUnitLabel.toLowerCase()} × ${set.actual_reps || 0} reps`
                             }
                           </span>
                           {set.rpe && <span style={{ color: '#888', fontSize: '0.85rem' }}>RPE {set.rpe}</span>}
@@ -358,7 +367,6 @@ export default function WorkoutDetail() {
       <div className="add-set-section">
         <h3>Log Freestyle Set</h3>
         <form onSubmit={handleAddSet} className="workout-form" style={{ marginTop: '10px' }}>
-          {/* ⚖️ Updated dynamic placeholder */}
           <input 
             type="number" placeholder={weightUnitLabel.toLowerCase()} step="0.1" required
             value={weight} onChange={(e) => setWeight(e.target.value)}

@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth } from '../apiClient';
+import { toBaseKg, toDisplayWeight } from '../utils/unitConverter'; // ⚖️ Added unit converters
 
 export default function CreateTemplate() {
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
 
-  // ⚖️ Dynamically get saved weight unit preference
-  const weightUnitLabel = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase() === 'kg' ? 'Kg' : 'Lbs';
+  // ⚖️ Dynamically get saved weight unit preference for conversions and labels
+  const userUnit = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase();
+  const weightUnitLabel = userUnit === 'kg' ? 'Kg' : 'Lbs';
 
   const templateToEdit = location.state?.templateToEdit;
   const isEditMode = !!id && !!templateToEdit;
@@ -38,7 +40,8 @@ export default function CreateTemplate() {
         tracking_type: ex.tracking_type || 'weight_reps',
         tags: ex.tags || [],
         sets: (ex.sets || []).map(set => ({
-          weight: set.weight !== 0 && set.weight != null ? String(set.weight) : '',
+          // ⚖️ Convert base kg from backend into user's preferred unit for the input field
+          weight: set.weight !== 0 && set.weight != null ? String(toDisplayWeight(set.weight, userUnit)) : '',
           reps: set.reps !== 0 && set.reps != null ? String(set.reps) : '',
           time_minutes: set.time_minutes !== 0 && set.time_minutes != null ? String(set.time_minutes) : '',
           time_seconds: set.time_seconds !== 0 && set.time_seconds != null ? String(set.time_seconds) : '',
@@ -47,9 +50,8 @@ export default function CreateTemplate() {
       }));
       setExercises(formattedExercises);
     }
-  }, [isEditMode, templateToEdit]);
+  }, [isEditMode, templateToEdit, userUnit]);
 
-  // 🧹 Cleaned up exercise fetch to use fetchWithAuth
   useEffect(() => {
     if (isModalOpen && availableExercises.length === 0) {
       fetchWithAuth('/api/v1/exercises')
@@ -202,7 +204,8 @@ export default function CreateTemplate() {
     const sanitizedExercises = exercises.map(ex => ({
       ...ex,
       sets: ex.sets.map(set => ({
-        weight: set.weight === '' || set.weight == null ? 0 : Number(set.weight),
+        // ⚖️ Convert typed form value (lbs or kg) to standard base kg for DB storage
+        weight: set.weight === '' || set.weight == null ? 0 : toBaseKg(set.weight, userUnit),
         reps: set.reps === '' || set.reps == null ? 0 : Number(set.reps),
         time_minutes: set.time_minutes === '' || set.time_minutes == null ? 0 : Number(set.time_minutes),
         time_seconds: set.time_seconds === '' || set.time_seconds == null ? 0 : Number(set.time_seconds),
@@ -216,7 +219,6 @@ export default function CreateTemplate() {
     const method = isEditMode ? 'PUT' : 'POST';
 
     try {
-      // 🧹 Cleaned up saving the routine to use fetchWithAuth
       const response = await fetchWithAuth(endpoint, {
         method: method,
         body: JSON.stringify({ name, exercises: sanitizedExercises }) 
@@ -347,7 +349,6 @@ export default function CreateTemplate() {
                     <input type="number" placeholder="Reps" value={set.reps} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'reps', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                   ) : ex.tracking_type === 'time_weight' ? (
                     <>
-                      {/* ⚖️ Updated placeholder */}
                       <input type="number" placeholder={weightUnitLabel} step="0.1" value={set.weight} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'weight', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                       <input type="number" placeholder="Min" value={set.time_minutes} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'time_minutes', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                       <input type="number" placeholder="Sec" value={set.time_seconds} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'time_seconds', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
@@ -360,7 +361,6 @@ export default function CreateTemplate() {
                     </>
                   ) : (
                     <>
-                      {/* ⚖️ Updated placeholder */}
                       <input type="number" placeholder={weightUnitLabel} step="0.1" value={set.weight} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'weight', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                       <input type="number" placeholder="Reps" value={set.reps} onChange={(e) => handleUpdateSet(exIndex, setIndex, 'reps', e.target.value)} style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d2d', background: '#111', color: '#fff', textAlign: 'center' }} />
                     </>

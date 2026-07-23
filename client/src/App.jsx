@@ -6,6 +6,7 @@ import FocusWorkout from './components/FocusWorkout';
 import CreateTemplate from './pages/CreateTemplate';
 import AuthPage from './pages/AuthPage';
 import AccountPage from './pages/AccountPage'; // ⚙️ Import the new Account Page
+import ScheduleSettings from './pages/ScheduleSettings';
 
 // 🛡️ Security Bouncer for Frontend Routes
 function ProtectedRoute({ children }) {
@@ -76,12 +77,22 @@ function App() {
           } 
         />
         
-        {/* ⚙️ New Account Route */}
+        {/* ⚙️ Account Route */}
         <Route 
           path="/account" 
           element={
             <ProtectedRoute>
               <AccountPage />
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* 🗓️ Schedule Settings Route */}
+        <Route 
+          path="/schedule-settings" 
+          element={
+            <ProtectedRoute>
+              <ScheduleSettings />
             </ProtectedRoute>
           } 
         />

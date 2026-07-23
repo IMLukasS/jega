@@ -41,4 +41,7 @@ app.use('/api/v1/routines', routinesRouter)
 const exercisesRouter = require('./routes/exercises');
 app.use('/api/v1/exercises', exercisesRouter);
 
+const scheduleRouter = require('./routes/schedule');
+app.use('/api/v1/schedule', scheduleRouter);
+
 module.exports = app

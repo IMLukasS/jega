@@ -16,6 +16,10 @@ export default function WorkoutCalendarGrid({ workouts = [], onDeleteWorkout }) 
   const [viewDate, setViewDate] = useState(new Date());
   const [scheduledWorkouts, setScheduledWorkouts] = useState([]);
   
+  // --- NEW: State for Quick & Retro Complete ---
+  const [completingId, setCompletingId] = useState(null);
+  const [quickLogData, setQuickLogData] = useState({ minutes: 30, notes: '' });
+  
   const [selectedDateStr, setSelectedDateStr] = useState(() => {
     return sessionStorage.getItem('selectedWorkoutDate') || null;
   });
@@ -72,6 +76,32 @@ export default function WorkoutCalendarGrid({ workouts = [], onDeleteWorkout }) 
 
   const handlePrevMonth = () => setViewDate(new Date(currentYear, currentMonth - 1, 1));
   const handleNextMonth = () => setViewDate(new Date(currentYear, currentMonth + 1, 1));
+
+  // --- NEW: API Call handler for quick complete ---
+  const handleQuickComplete = async (scheduledItem) => {
+    try {
+      const res = await fetchWithAuth(`/api/v1/schedule/${scheduledItem.id}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          duration_minutes: quickLogData.minutes,
+          notes: quickLogData.notes,
+          completed_date: scheduledItem.scheduled_date
+        })
+      });
+
+      if (res.ok) {
+        setCompletingId(null);
+        setQuickLogData({ minutes: 30, notes: '' });
+        window.location.reload(); // Refresh the page to show the newly completed block!
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Failed to log session");
+      }
+    } catch (err) {
+      console.error("Failed to complete workout", err);
+    }
+  };
 
   const getActivityIcon = (type) => {
     switch (type) {
@@ -177,16 +207,16 @@ export default function WorkoutCalendarGrid({ workouts = [], onDeleteWorkout }) 
           const isToday = cell.dateStr === todayStr;
 
           // Clean, solid block colors
-          let bgColor = '#27272a'; // Default Rest Day
+          let bgColor = '#27272a'; 
           if (hasCompleted) {
-            bgColor = '#10b981'; // Solid Emerald
+            bgColor = '#10b981'; 
           } else if (hasScheduled) {
-            bgColor = '#3b82f6'; // Solid Blue
+            bgColor = '#3b82f6'; 
           }
 
           let borderStyle = '2px solid transparent';
-          if (isToday) borderStyle = '2px solid #f59e0b'; // Amber ring for TODAY
-          if (isSelected) borderStyle = '2px solid #ffffff'; // White ring for SELECTED
+          if (isToday) borderStyle = '2px solid #f59e0b'; 
+          if (isSelected) borderStyle = '2px solid #ffffff'; 
 
           return (
             <button
@@ -239,12 +269,14 @@ export default function WorkoutCalendarGrid({ workouts = [], onDeleteWorkout }) 
                     key={item.id}
                     style={{
                       display: 'flex',
-                      justify: 'space-between',
-                      alignItems: 'center',
+                      flexDirection: completingId === item.id ? 'column' : 'row',
+                      justifyContent: 'space-between',
+                      alignItems: completingId === item.id ? 'stretch' : 'center',
                       background: '#27272a',
                       padding: '10px 14px',
                       borderRadius: '8px',
-                      marginBottom: '6px'
+                      marginBottom: '6px',
+                      gap: '12px'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -259,24 +291,62 @@ export default function WorkoutCalendarGrid({ workouts = [], onDeleteWorkout }) 
                       </div>
                     </div>
 
-                    {item.routine_id ? (
-                      <button
-                        onClick={() => navigate(`/workout-session?routineId=${item.routine_id}`)}
-                        style={{
-                          background: '#3b82f6',
-                          color: '#fff',
-                          border: 'none',
-                          padding: '6px 12px',
-                          borderRadius: '6px',
-                          fontWeight: '600',
-                          fontSize: '0.8rem',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        ▶ Start
-                      </button>
+                    {/* INTERACTIVE ACTION BLOCK */}
+                    {completingId === item.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                          <input 
+                            type="number" 
+                            value={quickLogData.minutes} 
+                            onChange={(e) => setQuickLogData({...quickLogData, minutes: e.target.value})}
+                            style={{ width: '70px', background: '#18181b', color: '#fff', border: '1px solid #3f3f46', borderRadius: '4px', padding: '6px', outline: 'none' }}
+                            title="Minutes"
+                            placeholder="Mins"
+                          />
+                          <input 
+                            type="text" 
+                            placeholder="Notes (optional)" 
+                            value={quickLogData.notes}
+                            onChange={(e) => setQuickLogData({...quickLogData, notes: e.target.value})}
+                            style={{ flex: 1, background: '#18181b', color: '#fff', border: '1px solid #3f3f46', borderRadius: '4px', padding: '6px', outline: 'none' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button onClick={() => setCompletingId(null)} style={{ background: 'transparent', color: '#a1a1aa', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}>Cancel</button>
+                          <button onClick={() => handleQuickComplete(item)} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>Save</button>
+                        </div>
+                      </div>
                     ) : (
-                      <span style={{ fontSize: '0.75rem', color: '#71717a' }}>Planned</span>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        {/* Only show Start if there is a routine attached and it hasn't been skipped */}
+                        {item.routine_id && item.status !== 'skipped' && (
+                          <button
+                            onClick={() => navigate(`/workout-session?routineId=${item.routine_id}`)}
+                            style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: '600', fontSize: '0.8rem', cursor: 'pointer' }}
+                          >
+                            ▶ Start
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setCompletingId(item.id);
+                            setQuickLogData({ minutes: 30, notes: '' }); // Reset default values when opening
+                          }}
+                          style={{
+                            background: item.status === 'skipped' ? '#f59e0b' : '#27272a',
+                            color: item.status === 'skipped' ? '#000' : '#10b981',
+                            border: item.status === 'skipped' ? 'none' : '1px solid #10b981',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            fontWeight: '600',
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {item.status === 'skipped' ? '↺ Retro Complete' : '✅ Quick Log'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}

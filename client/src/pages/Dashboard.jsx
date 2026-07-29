@@ -3,19 +3,31 @@ import { useNavigate, Link } from 'react-router-dom';
 import WorkoutCalendarGrid from '../components/WorkoutCalendarGrid';
 import { fetchWithAuth } from '../apiClient';
 
+// Helper to prevent UTC timezone date shifting
+const getLocalDateStr = (dateInput = new Date()) => {
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return String(dateInput).split('T')[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [workouts, setWorkouts] = useState([]);
   const [todaySchedule, setTodaySchedule] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  // 💡 Local date string avoids evening UTC date jumps
+  const todayStr = getLocalDateStr(new Date());
 
   useEffect(() => {
     // Fetch past workouts AND today's scheduled sessions in parallel
+    // 💡 Added &today=${todayStr} to trigger rollover engine calculation on load
     Promise.all([
       fetchWithAuth('/api/v1/workouts').then((res) => res.json()),
-      fetchWithAuth(`/api/v1/schedule/calendar?start_date=${todayStr}&end_date=${todayStr}`).then((res) => res.json())
+      fetchWithAuth(`/api/v1/schedule/calendar?start_date=${todayStr}&end_date=${todayStr}&today=${todayStr}`).then((res) => res.json())
     ])
       .then(([workoutsData, scheduleData]) => {
         if (Array.isArray(workoutsData)) {
@@ -24,11 +36,12 @@ export default function Dashboard() {
           setWorkouts([]);
         }
 
-        if (Array.isArray(scheduleData)) {
-          setTodaySchedule(scheduleData);
-        } else {
-          setTodaySchedule([]);
-        }
+        // Support both array and object response structures
+        const scheduledList = Array.isArray(scheduleData) 
+          ? scheduleData 
+          : scheduleData.workouts || [];
+          
+        setTodaySchedule(scheduledList);
       })
       .catch((err) => {
         console.error('Dashboard fetch error:', err);
@@ -175,7 +188,7 @@ export default function Dashboard() {
 
                 {session.routine_id ? (
                   <button
-                    onClick={() => navigate(`/focus/${session.routine_id}`)}
+                    onClick={() => navigate(`/workout-session?routineId=${session.routine_id}`)}
                     style={{
                       background: '#10b981',
                       color: '#fff',
@@ -222,7 +235,7 @@ export default function Dashboard() {
         borderRadius: '12px', 
         marginBottom: '24px', 
         display: 'flex', 
-        justifyContent: 'space-around', 
+        justify: 'space-around', 
         alignItems: 'center', 
         border: '1px solid #3e3e4a' 
       }}>

@@ -19,31 +19,104 @@ function parseLocalDateString(dateStr) {
   return new Date(year, month - 1, day);
 }
 
-// 🛠️ HELPER: Add days to an ISO string ('YYYY-MM-DD') without relying on server system clock
 function addDaysToDateString(dateStr, days = 30) {
   const d = parseLocalDateString(dateStr);
   d.setDate(d.getDate() + days);
   return getLocalDateString(d);
 }
 
+// 🧬 GROUND-TRUTH CASCADE RECOMPUTE (CONSTRAINED, lifting only)
+// Idempotent — safe to call from anywhere, any number of times, in any order.
+async function recomputeConstrainedLifting(userId, todayStr) {
+  const missedRes = await db.query(
+    `SELECT id, COALESCE(original_title, title) AS original_title,
+            COALESCE(original_routine_id, routine_id) AS original_routine_id
+     FROM scheduled_workouts
+     WHERE user_id = $1::uuid
+       AND activity_type = 'lifting'
+       AND status = 'skipped'
+       AND scheduled_date < $2::date
+     ORDER BY scheduled_date ASC, time_slot ASC`,
+    [userId, todayStr]
+  );
+  const missedLifting = missedRes.rows || [];
+
+  const futureRes = await db.query(
+    `SELECT id, COALESCE(original_title, title) AS original_title,
+            COALESCE(original_routine_id, routine_id) AS original_routine_id
+     FROM scheduled_workouts
+     WHERE user_id = $1::uuid
+       AND activity_type = 'lifting'
+       AND status = 'pending'
+       AND scheduled_date >= $2::date
+     ORDER BY scheduled_date ASC, time_slot ASC`,
+    [userId, todayStr]
+  );
+  const futureSlots = futureRes.rows || [];
+
+  const queue = [
+    ...missedLifting.map(m => ({ title: m.original_title, routine_id: m.original_routine_id })),
+    ...futureSlots.map(f => ({ title: f.original_title, routine_id: f.original_routine_id }))
+  ];
+
+  for (let i = 0; i < futureSlots.length; i++) {
+    const slot = futureSlots[i];
+    const content = queue[i];
+    await db.query(
+      `UPDATE scheduled_workouts SET title = $1::varchar, routine_id = $2::uuid, updated_at = NOW() WHERE id = $3`,
+      [content.title, sanitizeUuid(content.routine_id), slot.id]
+    );
+  }
+
+  const overflowCount = Math.max(0, queue.length - futureSlots.length);
+  if (overflowCount > 0) {
+    console.warn(`⚠️ [CONSTRAINED] ${overflowCount} workout(s) don't fit in the current window and remain unassigned.`);
+  }
+
+  return { movedCount: missedLifting.length, overflowCount };
+}
+
+const MAX_BACKFILL_DAYS = 180; // Safety cap to prevent runaway inserts after long absences
+
 // 🔄 HELPER: Forward-Only Calendar Generator & Rollover Engine
 async function syncUserSchedule(userId, startDateStr, endDateStr, clientTodayStr) {
-  if (!userId) return;
+  if (!userId) return { executed: false, mode: 'CONSTRAINED', skippedCount: 0, movedCount: 0 };
 
   try {
     const todayStr = clientTodayStr || getLocalDateString();
     const reqStart = startDateStr || todayStr;
-    const genStart = reqStart < todayStr ? todayStr : reqStart;
-    
-    // 💡 FIX: Ensure template generation projects AT LEAST 30 days ahead from todayStr.
-    // Even if the UI calendar request passes a shorter endDateStr (e.g. 7-10 days),
-    // we must generate future slots so the cascade queue has room to fit moved workouts.
+    let genStart = reqStart < todayStr ? todayStr : reqStart;
+
+    // 🩹 GAP-FILL: Resume schedule generation from where it last left off
+    const lastGenRes = await db.query(
+      `SELECT MAX(scheduled_date)::text AS last_date FROM scheduled_workouts WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    const lastGenDate = lastGenRes.rows[0]?.last_date;
+
+    if (lastGenDate) {
+      let gapFillStart = addDaysToDateString(lastGenDate, 1);
+      const earliestAllowed = addDaysToDateString(todayStr, -MAX_BACKFILL_DAYS);
+      
+      if (gapFillStart < earliestAllowed) {
+        console.warn(`⚠️ Gap exceeds ${MAX_BACKFILL_DAYS} days — capping backfill start at ${earliestAllowed}.`);
+        gapFillStart = earliestAllowed;
+      }
+      
+      if (gapFillStart < genStart) {
+        genStart = gapFillStart;
+      }
+    }
+
     const defaultEnd = addDaysToDateString(todayStr, 30);
     const genEnd = (endDateStr && endDateStr > defaultEnd) ? endDateStr : defaultEnd;
 
-    // 1. BATCH INSERT missing dates using PostgreSQL generate_series
+    // 1. BATCH INSERT missing dates with valid ground truth columns
     await db.query(
-      `INSERT INTO scheduled_workouts (user_id, routine_id, scheduled_date, time_slot, activity_type, title, status)
+      `INSERT INTO scheduled_workouts (
+         user_id, routine_id, scheduled_date, time_slot, activity_type, title, status,
+         original_title, original_routine_id
+       ) 
        SELECT 
          $1::uuid,
          wst.routine_id,
@@ -51,7 +124,9 @@ async function syncUserSchedule(userId, startDateStr, endDateStr, clientTodayStr
          COALESCE(wst.time_slot, 'AM'),
          COALESCE(wst.activity_type, 'lifting'),
          COALESCE(wst.title, 'Workout'),
-         'pending'
+         'pending',
+         COALESCE(wst.title, 'Workout'),
+         wst.routine_id
        FROM generate_series($2::date, $3::date, '1 day'::interval) d(day)
        JOIN weekly_schedule_templates wst 
          ON wst.user_id = $1::uuid 
@@ -60,12 +135,11 @@ async function syncUserSchedule(userId, startDateStr, endDateStr, clientTodayStr
          SELECT 1 FROM scheduled_workouts sw 
          WHERE sw.user_id = $1::uuid 
            AND sw.scheduled_date = d.day::date 
-           AND sw.time_slot = COALESCE(wst.time_slot, 'AM')
+           AND COALESCE(sw.time_slot, 'AM') = COALESCE(wst.time_slot, 'AM')
        )`,
       [userId, genStart, genEnd]
     );
 
-    // 2. Fetch past pending workouts (< Today) for Rollover Engine
     const userRes = await db.query('SELECT scheduling_mode FROM users WHERE id = $1::uuid', [userId]);
     const mode = userRes.rows[0]?.scheduling_mode || 'CONSTRAINED';
 
@@ -77,26 +151,59 @@ async function syncUserSchedule(userId, startDateStr, endDateStr, clientTodayStr
     );
     const missedWorkouts = missedRes.rows || [];
 
-    if (missedWorkouts.length === 0) return;
+    if (missedWorkouts.length === 0) {
+      return { executed: false, mode, skippedCount: 0, movedCount: 0 };
+    }
 
-    // 3. Apply Rollover
+    let skippedCount = 0;
+    let movedCount = 0;
+
     if (mode === 'STATIC') {
-      await db.query(
+      const result = await db.query(
         `UPDATE scheduled_workouts 
          SET status = 'skipped', updated_at = NOW() 
          WHERE user_id = $1::uuid AND scheduled_date < $2::date AND status = 'pending'`,
         [userId, todayStr]
       );
+      skippedCount = result.rowCount || missedWorkouts.length;
+
     } else if (mode === 'PIPELINE') {
-      for (const missed of missedWorkouts) {
+  // Fetch ALL pending workouts in chronological order
+  const allPendingRes = await db.query(
+    `SELECT id, scheduled_date::text AS scheduled_date 
+     FROM scheduled_workouts 
+     WHERE user_id = $1::uuid AND status = 'pending'
+     ORDER BY scheduled_date ASC, time_slot ASC`,
+    [userId]
+  );
+  
+  const pendingQueue = allPendingRes.rows || [];
+
+  if (pendingQueue.length > 0) {
+    let targetDateStr = todayStr;
+
+    for (const workout of pendingQueue) {
+      // If a pending workout's date is in the past, push it forward to targetDateStr
+      if (workout.scheduled_date < targetDateStr) {
         await db.query(
-          `UPDATE scheduled_workouts SET scheduled_date = $1::date, updated_at = NOW() WHERE id = $2`,
-          [todayStr, missed.id]
+          `UPDATE scheduled_workouts 
+           SET scheduled_date = $1::date, updated_at = NOW() 
+           WHERE id = $2`,
+          [targetDateStr, workout.id]
         );
+        movedCount++;
+      } else {
+        // Workout is already on or after targetDateStr; advance targetDateStr to this date
+        targetDateStr = workout.workout_date || workout.scheduled_date;
       }
+
+      // Advance the target date by 1 day for the next item in line to prevent stacking
+      targetDateStr = addDaysToDateString(targetDateStr, 1);
+    }
+  }
     } else if (mode === 'CONSTRAINED') {
-      // 1. NON-LIFTING (Swim, Cardio, Rest, etc.) -> Stay Static & Mark Skipped
-      await db.query(
+      // Non-lifting: Mark as skipped
+      const nonLiftingResult = await db.query(
         `UPDATE scheduled_workouts 
          SET status = 'skipped', updated_at = NOW() 
          WHERE user_id = $1::uuid 
@@ -105,75 +212,29 @@ async function syncUserSchedule(userId, startDateStr, endDateStr, clientTodayStr
            AND activity_type != 'lifting'`,
         [userId, todayStr]
       );
+      skippedCount = nonLiftingResult.rowCount || 0;
 
-      // 2. LIFTING WORKOUTS -> Domino Cascade Shift across future lifting slots
-      const missedLiftingRes = await db.query(
-        `SELECT id, routine_id, title 
-         FROM scheduled_workouts 
+      // Lifting: Mark past pending rows as 'skipped'
+      await db.query(
+        `UPDATE scheduled_workouts 
+         SET status = 'skipped', updated_at = NOW() 
          WHERE user_id = $1::uuid 
            AND scheduled_date < $2::date 
            AND status = 'pending' 
-           AND activity_type = 'lifting'
-         ORDER BY scheduled_date ASC, time_slot ASC`,
+           AND activity_type = 'lifting'`,
         [userId, todayStr]
       );
-      const missedLifting = missedLiftingRes.rows || [];
 
-      if (missedLifting.length > 0) {
-        // Get all future pending lifting slots starting TODAY (inclusive)
-        const futureLiftingRes = await db.query(
-          `SELECT id, routine_id, title 
-           FROM scheduled_workouts 
-           WHERE user_id = $1::uuid 
-             AND scheduled_date >= $2::date 
-             AND status = 'pending' 
-             AND activity_type = 'lifting'
-           ORDER BY scheduled_date ASC, time_slot ASC`,
-          [userId, todayStr]
-        );
-        const futureSlots = futureLiftingRes.rows || [];
-
-        // Create the combined sequence: [Missed Lifting Workouts] + [Future Lifting Workouts]
-        const fullQueue = [
-          ...missedLifting.map(m => ({ routine_id: m.routine_id, title: m.title })),
-          ...futureSlots.map(f => ({ routine_id: f.routine_id, title: f.title }))
-        ];
-
-        // 🔍 DEBUG LOG: Inspect queue before performing updates
-        console.log('🔍 CONSTRAINED Lifting Cascade:', {
-          todayStr,
-          missedLiftingCount: missedLifting.length,
-          futureSlotsFound: futureSlots.length,
-          fullQueueTitles: fullQueue.map(q => q.title)
-        });
-
-        // Shift the entire sequence into the future lifting slots
-        for (let i = 0; i < futureSlots.length; i++) {
-          const slot = futureSlots[i];
-          const workoutToAssign = fullQueue[i];
-
-          if (workoutToAssign) {
-            await db.query(
-              `UPDATE scheduled_workouts 
-               SET routine_id = $1::uuid, title = $2::varchar, updated_at = NOW() 
-               WHERE id = $3`,
-              [sanitizeUuid(workoutToAssign.routine_id), workoutToAssign.title, slot.id]
-            );
-          }
-        }
-
-        // Mark the past missed lifting slots as 'skipped'
-        const missedIds = missedLifting.map(m => m.id);
-        await db.query(
-          `UPDATE scheduled_workouts 
-           SET status = 'skipped', updated_at = NOW() 
-           WHERE id = ANY($1::int[])`,
-          [missedIds]
-        );
-      }
+      // Recompute display sequence downstream
+      const { movedCount: cascadeMoved } = await recomputeConstrainedLifting(userId, todayStr);
+      movedCount = cascadeMoved;
     }
+
+    return { executed: true, mode, skippedCount, movedCount };
+
   } catch (err) {
     console.error('❌ Error inside syncUserSchedule engine:', err);
+    return { executed: false, mode: 'CONSTRAINED', skippedCount: 0, movedCount: 0 };
   }
 }
 
@@ -181,11 +242,7 @@ async function syncUserSchedule(userId, startDateStr, endDateStr, clientTodayStr
 router.get('/preferences', auth, async (req, res) => {
   const userId = getUserId(req);
   try {
-    const userResult = await db.query(
-      'SELECT scheduling_mode FROM users WHERE id = $1::uuid',
-      [userId]
-    );
-
+    const userResult = await db.query('SELECT scheduling_mode FROM users WHERE id = $1::uuid', [userId]);
     const weeklyResult = await db.query(
       `SELECT wst.id, wst.day_of_week, wst.time_slot, wst.activity_type, wst.routine_id, wst.title, r.name as routine_name
        FROM weekly_schedule_templates wst
@@ -194,7 +251,6 @@ router.get('/preferences', auth, async (req, res) => {
        ORDER BY wst.day_of_week ASC, wst.time_slot ASC`,
       [userId]
     );
-
     res.json({
       scheduling_mode: userResult.rows[0]?.scheduling_mode || 'CONSTRAINED',
       weekly_split: weeklyResult.rows || []
@@ -215,26 +271,17 @@ router.put('/preferences', auth, async (req, res) => {
     await client.query('BEGIN');
 
     if (scheduling_mode) {
-      await client.query(
-        'UPDATE users SET scheduling_mode = $1::varchar WHERE id = $2::uuid',
-        [scheduling_mode, userId]
-      );
+      await client.query('UPDATE users SET scheduling_mode = $1::varchar WHERE id = $2::uuid', [scheduling_mode, userId]);
     }
 
     if (Array.isArray(weekly_split)) {
-      await client.query(
-        'DELETE FROM weekly_schedule_templates WHERE user_id = $1::uuid',
-        [userId]
-      );
+      await client.query('DELETE FROM weekly_schedule_templates WHERE user_id = $1::uuid', [userId]);
 
       const todayStr = req.query.today || getLocalDateString();
 
-      // Wipe ONLY pending workouts from TODAY onwards
       await client.query(
         `DELETE FROM scheduled_workouts 
-         WHERE user_id = $1::uuid 
-           AND scheduled_date >= $2::date 
-           AND status = 'pending'`,
+         WHERE user_id = $1::uuid AND scheduled_date >= $2::date AND status = 'pending'`,
         [userId, todayStr]
       );
 
@@ -245,12 +292,8 @@ router.put('/preferences', auth, async (req, res) => {
 
       for (const slot of weekly_split) {
         await client.query(insertQuery, [
-          userId,
-          slot.day_of_week,
-          slot.time_slot || 'AM',
-          slot.activity_type || 'lifting',
-          sanitizeUuid(slot.routine_id),
-          slot.title || 'Workout'
+          userId, slot.day_of_week, slot.time_slot || 'AM',
+          slot.activity_type || 'lifting', sanitizeUuid(slot.routine_id), slot.title || 'Workout'
         ]);
       }
     }
@@ -258,9 +301,7 @@ router.put('/preferences', auth, async (req, res) => {
     await client.query('COMMIT');
 
     const todayStr = req.query.today || getLocalDateString();
-    // 💡 FIX 2: Use virtual todayStr anchor
     const endStr = addDaysToDateString(todayStr, 30);
-
     await syncUserSchedule(userId, todayStr, endStr, todayStr);
 
     res.json({ message: 'Schedule preferences updated successfully!' });
@@ -281,29 +322,18 @@ router.get('/calendar', auth, async (req, res) => {
   try {
     const clientToday = today || getLocalDateString();
     const startDate = start_date || clientToday;
-    
-    // 💡 FIX 3: Default endDate anchored to clientToday, NOT real system clock
     const endDate = end_date || addDaysToDateString(clientToday, 30);
 
-    await syncUserSchedule(userId, startDate, endDate, clientToday);
+    const rolloverSummary = await syncUserSchedule(userId, startDate, endDate, clientToday);
 
     const query = `
       SELECT 
-        sw.id,
-        sw.user_id,
-        sw.routine_id,
-        sw.scheduled_date::text AS scheduled_date,
-        sw.time_slot,
-        sw.activity_type,
-        sw.title,
-        sw.status,
-        sw.created_at,
-        sw.updated_at,
+        sw.id, sw.user_id, sw.routine_id, sw.scheduled_date::text AS scheduled_date,
+        sw.time_slot, sw.activity_type, sw.title, sw.status, sw.created_at, sw.updated_at,
         r.name as routine_name
       FROM scheduled_workouts sw
       LEFT JOIN routines r ON sw.routine_id = r.id
-      WHERE sw.user_id = $1::uuid 
-        AND sw.scheduled_date BETWEEN $2::date AND $3::date
+      WHERE sw.user_id = $1::uuid AND sw.scheduled_date BETWEEN $2::date AND $3::date
       ORDER BY sw.scheduled_date ASC, sw.time_slot ASC
     `;
 
@@ -320,13 +350,14 @@ router.post('/:id/complete', auth, async (req, res) => {
   const userId = getUserId(req);
   const scheduledWorkoutId = req.params.id;
   const { duration_minutes, notes, completed_date } = req.body;
+  const todayStr = req.query.today || req.body.today || getLocalDateString();
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
 
     const swRes = await client.query(
-      `SELECT title, scheduled_date FROM scheduled_workouts WHERE id = $1 AND user_id = $2::uuid`,
+      `SELECT title, scheduled_date, status, activity_type FROM scheduled_workouts WHERE id = $1 AND user_id = $2::uuid`,
       [scheduledWorkoutId, userId]
     );
 
@@ -334,35 +365,47 @@ router.post('/:id/complete', auth, async (req, res) => {
       throw new Error('Scheduled workout not found');
     }
 
-    const { title, scheduled_date } = swRes.rows[0];
+    const { title, scheduled_date, status, activity_type } = swRes.rows[0];
+
+    if (status === 'completed') {
+      throw new Error('ALREADY_COMPLETED');
+    }
+
     const targetDateStr = completed_date || getLocalDateString(scheduled_date);
     const durationSeconds = (duration_minutes || 0) * 60;
 
     await client.query(
-      `UPDATE scheduled_workouts 
-       SET status = 'completed', completed_at = NOW(), updated_at = NOW() 
-       WHERE id = $1`,
+      `UPDATE scheduled_workouts SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [scheduledWorkoutId]
     );
 
     await client.query(
       `INSERT INTO workout_logs (user_id, name, started_at, duration_seconds, notes)
        VALUES ($1::uuid, $2::varchar, $3::timestamp, $4::integer, $5::text)`,
-      [
-        userId, 
-        title, 
-        `${targetDateStr} 12:00:00`,
-        durationSeconds, 
-        notes || null
-      ]
+      [userId, title, `${targetDateStr} 12:00:00`, durationSeconds, notes || null]
     );
 
     await client.query('COMMIT');
+
+    if (activity_type === 'lifting') {
+      const modeRes = await db.query('SELECT scheduling_mode FROM users WHERE id = $1::uuid', [userId]);
+      if (modeRes.rows[0]?.scheduling_mode === 'CONSTRAINED') {
+        try {
+          await recomputeConstrainedLifting(userId, todayStr);
+        } catch (recomputeErr) {
+          console.error('⚠️ Completed workout, but cascade recompute failed:', recomputeErr);
+        }
+      }
+    }
+
     res.json({ message: 'Workout marked as completed!' });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('❌ Error completing workout:', error);
-    res.status(500).json({ error: error.message || 'Failed to complete workout' });
+    const isDuplicate = error.message === 'ALREADY_COMPLETED';
+    res.status(isDuplicate ? 409 : 500).json({
+      error: isDuplicate ? 'This workout has already been logged.' : (error.message || 'Failed to complete workout')
+    });
   } finally {
     client.release();
   }

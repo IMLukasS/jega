@@ -399,6 +399,14 @@ export default function CreateTemplate() {
                       <option value="stopwatch">Stopwatch</option>
                     </select>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <label style={{ color: '#ccc', fontSize: '0.8rem' }}>Auto‑adv</label>
+                    <input
+                      type="checkbox"
+                      checked={ex.auto_advance || false}
+                      onChange={(e) => handleUpdateExerciseField(blockIndex, exIndex, 'auto_advance', e.target.checked)}
+                    />
+                  </div>
                   {ex.timer_mode === 'countdown' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <label style={{ color: '#ccc', fontSize: '0.8rem' }}>Work (s)</label>
@@ -448,8 +456,22 @@ export default function CreateTemplate() {
 
             {/* Add exercise to this block */}
             <div style={{ marginTop: '12px' }}>
-              <button onClick={(e) => { handleAddExerciseToBlock(e, blockIndex); }} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: '100%' }}>
-                + Add Exercise to This Block
+              <button
+                onClick={(e) => { handleAddExerciseToBlock(e, blockIndex); }}
+                disabled={!exerciseInput.trim()}
+                style={{
+                  background: exerciseInput.trim() ? '#2563eb' : '#333',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 16px',   // slightly larger
+                  borderRadius: '8px',
+                  fontWeight: 'bold',
+                  cursor: exerciseInput.trim() ? 'pointer' : 'not-allowed',
+                  width: '100%',
+                  fontSize: '0.95rem'
+                }}
+              >
+                Add to Block
               </button>
             </div>
           </div>

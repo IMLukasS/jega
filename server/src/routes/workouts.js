@@ -64,27 +64,38 @@ router.get('/:id', auth, async (req, res) => {
     const workout = workoutResult.rows[0];
 
     const setsQuery = `
-      SELECT 
-        sl.id, 
-        sl.set_number, 
-        sl.actual_weight_kg, 
-        sl.actual_reps, 
-        sl.time_minutes, 
-        sl.time_seconds, 
-        sl.distance, 
-        sl.rpe, 
-        sl.completed_at,
-        COALESCE(e.title, 'Freestyle Exercise') AS exercise_name, 
-        COALESCE(e.tracking_type, 'weight_reps') AS tracking_type,
-        COALESCE(re.sequence_order, 999) AS sequence_order, 
-        re.tags
-      FROM set_logs sl
-      LEFT JOIN exercises e ON sl.exercise_id = e.id 
-      JOIN workout_logs wl ON sl.workout_log_id = wl.id 
-      LEFT JOIN routine_exercises re ON re.routine_id = wl.routine_id AND re.exercise_id = sl.exercise_id 
-      WHERE sl.workout_log_id = $1
-      ORDER BY COALESCE(re.sequence_order, 999) ASC, sl.set_number ASC, sl.id ASC;
-    `;
+  SELECT 
+    sl.id, 
+    sl.set_number, 
+    sl.actual_weight_kg, 
+    sl.actual_reps, 
+    sl.time_minutes, 
+    sl.time_seconds, 
+    sl.distance, 
+    sl.rpe, 
+    sl.completed_at,
+    COALESCE(e.title, 'Freestyle Exercise') AS exercise_name, 
+    COALESCE(e.tracking_type, 'weight_reps') AS tracking_type,
+    COALESCE(
+      (SELECT rbe.sequence_order
+       FROM routine_blocks rb
+       JOIN routine_block_exercises rbe ON rbe.block_id = rb.id
+       WHERE rb.routine_id = wl.routine_id AND rbe.exercise_id = sl.exercise_id
+       LIMIT 1), 999
+    ) AS sequence_order,
+    COALESCE(
+      (SELECT rbe.tags
+       FROM routine_blocks rb
+       JOIN routine_block_exercises rbe ON rbe.block_id = rb.id
+       WHERE rb.routine_id = wl.routine_id AND rbe.exercise_id = sl.exercise_id
+       LIMIT 1), '{}'::text[]
+    ) AS tags
+  FROM set_logs sl
+  LEFT JOIN exercises e ON sl.exercise_id = e.id 
+  JOIN workout_logs wl ON sl.workout_log_id = wl.id 
+  WHERE sl.workout_log_id = $1
+  ORDER BY sequence_order ASC, sl.set_number ASC, sl.id ASC;
+`;
     const setsResult = await db.query(setsQuery, [id]);
 
     const setsWithTags = setsResult.rows.map(row => ({

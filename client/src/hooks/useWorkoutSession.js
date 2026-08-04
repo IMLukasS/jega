@@ -12,7 +12,6 @@ export const useWorkoutSession = () => {
   const [workoutId, setWorkoutId] = useState(null);
   const sessionStarted = useRef(false);
 
-  // ⏱ Elapsed stopwatch
   const [elapsedSeconds, setElapsedSeconds] = useState(() => {
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     if (savedSession && savedSession.startTime) {
@@ -21,7 +20,6 @@ export const useWorkoutSession = () => {
     return 0;
   });
 
-  // Unit-based active index (today just wraps the exercise index)
   const [activeUnitIndex, setActiveUnitIndex] = useState(() => {
     const savedSession = JSON.parse(localStorage.getItem('activeWorkoutSession'));
     if (savedSession?.routineId === routineId && savedSession.activeIndex !== undefined) {
@@ -30,14 +28,21 @@ export const useWorkoutSession = () => {
     return 0;
   });
 
-  // Derive workout units from routine.exercises (each unit is { exercises: [ex], type: 'single' })
-  const workoutUnits = routine?.exercises?.map(ex => ({ exercises: [ex], type: 'single' })) ?? [];
+  // Derive workout units from routine.blocks (new structure)
+  const workoutUnits = routine?.blocks?.map(block => ({
+    id: block.id,
+    type: block.block_type, // 'single', 'circuit', 'superset'
+    exercises: block.exercises,
+    rounds: block.rounds,
+    roundRest: block.round_rest_seconds,
+    autoAdvanceRound: block.auto_advance_round,
+  })) ?? [];
 
   const activeUnit = workoutUnits[activeUnitIndex];
-  // For now, we just take the first (and only) exercise of the unit
-  const activeExercise = activeUnit?.exercises[0] ?? null;
+  // For single type, the active exercise is the first (and only) one
+  const activeExercise = activeUnit?.exercises?.[0] ?? null;
 
-  // Elapsed timer effect
+  // Elapsed timer
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setElapsedSeconds(prev => prev + 1);
@@ -56,14 +61,27 @@ export const useWorkoutSession = () => {
     const freestyleTrackingType = location.state?.freestyleTrackingType || 'weight_reps';
 
     if (routineId === 'freestyle') {
+      // Create mock routine with a single block
       const freestyleMock = {
         name: location.state?.customName || 'Freestyle Workout',
-        exercises: [{
-          id: 'c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7',
-          exercise_id: 'c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7',
-          name: 'Freestyle Exercise',
-          tracking_type: freestyleTrackingType,
-          sets: []
+        blocks: [{
+          id: 'freestyle-block',
+          block_type: 'single',
+          exercises: [{
+            id: 'c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7',
+            exercise_id: 'c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7',
+            name: 'Freestyle Exercise',
+            tracking_type: freestyleTrackingType,
+            sets: [],
+            rest_seconds: 90,
+            auto_advance: false,
+            work_seconds: null,
+            timer_mode: 'manual',
+            tags: []
+          }],
+          rounds: 1,
+          round_rest_seconds: 0,
+          auto_advance_round: false,
         }]
       };
       setRoutine(freestyleMock);
@@ -96,9 +114,7 @@ export const useWorkoutSession = () => {
     fetchWithAuth(`/api/v1/routines/${routineId}`)
       .then(res => res.json())
       .then(async data => {
-        const selectedRoutine = Array.isArray(data)
-          ? data.find(r => r.id === routineId)
-          : data;
+        const selectedRoutine = Array.isArray(data) ? data.find(r => r.id === routineId) : data;
         if (!selectedRoutine) return;
         setRoutine(selectedRoutine);
 
@@ -118,7 +134,7 @@ export const useWorkoutSession = () => {
       });
   }, [routineId, location.state]);
 
-  // Auto-save activeIndex and workoutId (but not sets – that’s done by the set logger)
+  // Auto-save active index
   useEffect(() => {
     if (!workoutId) return;
     const saved = JSON.parse(localStorage.getItem('activeWorkoutSession'));
@@ -128,7 +144,6 @@ export const useWorkoutSession = () => {
     }
   }, [activeUnitIndex, workoutId]);
 
-  // Cancel / Finalize helpers
   const handleCancelWorkout = async () => {
     const isSure = window.confirm("Are you sure you want to cancel? This will delete the workout entirely.");
     if (!isSure) return;

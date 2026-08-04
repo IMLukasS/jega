@@ -1,8 +1,7 @@
-// src/FocusWorkout.jsx
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useWorkoutSession } from '../hooks/useWorkoutSession';
-import { useRestTimer } from '../hooks/useRestTimer';
 import { useSetLogger } from '../hooks/useSetLogger';
+import { usePhaseTimer } from '../hooks/usePhaseTimer';
 import { formatTime } from '../utils/setDisplay';
 import ExerciseHeader from './workout/ExerciseHeader';
 import CompletedSetsList from './workout/CompletedSetsList';
@@ -11,6 +10,7 @@ import SetInputForm from './workout/SetInputForm';
 import FreestyleTypeSwitcher from './workout/FreestyleTypeSwitcher';
 import RestTimerPanel from './workout/RestTimerPanel';
 import WorkoutTimeline from './workout/WorkoutTimeline';
+import CircuitCard from './workout/CircuitCard';
 
 export default function FocusWorkout() {
   const {
@@ -25,24 +25,38 @@ export default function FocusWorkout() {
 
   const userUnit = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase();
   const weightLabel = userUnit === 'kg' ? 'Kg' : 'Lbs';
-
-  // Freestyle tracking type state (only relevant for freestyle)
   const [freestyleTrackingType, setFreestyleTrackingType] = useState('weight_reps');
 
-  // If freestyle, override activeExercise's tracking_type
+  // Maintain state for active circuits by unit ID
+  const [circuitStates, setCircuitStates] = useState({});
+  const updateCircuitState = useCallback((unitId, state) => {
+    // IMPORTANT: merge with the existing entry for this unit rather than
+    // replacing it. CircuitCard calls this repeatedly with partial updates
+    // (e.g. just { phaseState: 'rest' }); replacing the whole object was
+    // silently wiping currentRound / currentStationIndex / loggedSets every
+    // time a phase changed, and breaking "resume where I left off" when
+    // switching between exercises.
+    setCircuitStates(prev => ({
+      ...prev,
+      [unitId]: { ...(prev[unitId] || {}), ...state }
+    }));
+  }, []);
+
   if (isFreestyle && activeExercise) {
     activeExercise.tracking_type = freestyleTrackingType;
   }
 
-  // Rest timer hook
+  // Phase timer – no auto-advance callback
   const {
-    restTimeLeft,
-    isRestTimerRunning,
-    addRestTime,
-    startRestTimer,
-    togglePauseRestTimer,
-    skipRest,
-  } = useRestTimer();
+    phase,
+    timeLeft: restTimeLeft,
+    isRunning: isRestTimerRunning,
+    startPhaseTimer,
+    addTime: addRestTime,
+    skip: skipRest,
+    pause,
+    resume,
+  } = usePhaseTimer(); // no onPhaseComplete
 
   // Set logger hook
   const {
@@ -65,7 +79,10 @@ export default function FocusWorkout() {
     activeExerciseIndex: activeUnitIndex,
     workoutId,
     userUnit,
-    onSetLogged: () => startRestTimer(90), // default 90s rest; per-exercise later
+    onSetLogged: () => {
+      const restSec = activeExercise?.rest_seconds ?? 90;
+      startPhaseTimer('rest', restSec);
+    },
   });
 
   const isLastUnit = activeUnitIndex === workoutUnits.length - 1;
@@ -77,6 +94,14 @@ export default function FocusWorkout() {
       setActiveUnitIndex(prev => prev + 1);
     } else {
       handleFinalizeWorkout();
+    }
+  };
+
+  const togglePauseRestTimer = () => {
+    if (isRestTimerRunning) {
+      pause();
+    } else {
+      resume();
     }
   };
 
@@ -100,48 +125,59 @@ export default function FocusWorkout() {
         </div>
       </div>
 
-      {/* Main focus card */}
-      <div style={{ backgroundColor: '#1e1e1e', border: '1px solid #2d2d2d', borderRadius: '12px', padding: '20px', flex: '1' }}>
-        <ExerciseHeader name={activeExercise?.name} tags={activeExercise?.tags} targetSetsCount={targetSetsCount} />
+      {/* Main focus card (Conditioned on activeUnit.type) */}
+      {activeUnit?.type === 'single' ? (
+        <div style={{ backgroundColor: '#1e1e1e', border: '1px solid #2d2d2d', borderRadius: '12px', padding: '20px', flex: '1' }}>
+          <ExerciseHeader name={activeExercise?.name} tags={activeExercise?.tags} targetSetsCount={targetSetsCount} />
 
-        <CompletedSetsList sets={currentCompletedSets} trackingType={activeExercise?.tracking_type} userUnit={weightLabel} onEdit={handleStartEdit} />
+          <CompletedSetsList sets={currentCompletedSets} trackingType={activeExercise?.tracking_type} userUnit={weightLabel} onEdit={handleStartEdit} />
 
-        <GoalBanner plannedSet={plannedSet} trackingType={activeExercise?.tracking_type} userUnit={userUnit} />
+          <GoalBanner plannedSet={plannedSet} trackingType={activeExercise?.tracking_type} userUnit={userUnit} />
 
-        {isFreestyle && (
-          <FreestyleTypeSwitcher currentType={freestyleTrackingType} onTypeChange={setFreestyleTrackingType} />
-        )}
+          {isFreestyle && (
+            <FreestyleTypeSwitcher currentType={freestyleTrackingType} onTypeChange={setFreestyleTrackingType} />
+          )}
 
-        <SetInputForm
-          trackingType={activeExercise?.tracking_type}
-          weight={weight} setWeight={setWeight}
-          reps={reps} setReps={setReps}
-          timeMin={timeMin} setTimeMin={setTimeMin}
-          timeSec={timeSec} setTimeSec={setTimeSec}
-          distance={distance} setDistance={setDistance}
-          rpe={rpe} setRpe={setRpe}
-          editingSetIndex={editingSetIndex}
-          onSubmit={handleLogSet}
-          onCancelEdit={handleCancelEdit}
-          onDeleteSet={handleDeleteActiveSet}
+          <SetInputForm
+            trackingType={activeExercise?.tracking_type}
+            weight={weight} setWeight={setWeight}
+            reps={reps} setReps={setReps}
+            timeMin={timeMin} setTimeMin={setTimeMin}
+            timeSec={timeSec} setTimeSec={setTimeSec}
+            distance={distance} setDistance={setDistance}
+            rpe={rpe} setRpe={setRpe}
+            editingSetIndex={editingSetIndex}
+            onSubmit={handleLogSet}
+            onCancelEdit={handleCancelEdit}
+            onDeleteSet={handleDeleteActiveSet}
+            userUnit={weightLabel}
+          />
+
+          <button
+            onClick={handleNextExercise}
+            style={{ width: '100%', padding: '16px', backgroundColor: isLastUnit ? '#4ade80' : '#2563eb', color: isLastUnit ? '#111' : '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer' }}
+          >
+            {isLastUnit ? "Finish Workout 🎉" : "Next Exercise ➔"}
+          </button>
+
+          <RestTimerPanel
+            restTimeLeft={restTimeLeft}
+            isRestTimerRunning={isRestTimerRunning}
+            onAddTime={addRestTime}
+            onTogglePause={togglePauseRestTimer}
+            onSkip={skipRest}
+          />
+        </div>
+      ) : (
+        <CircuitCard
+          unit={activeUnit}
+          workoutId={workoutId}
           userUnit={weightLabel}
+          onCircuitComplete={handleNextExercise}
+          circuitState={circuitStates[activeUnit.id] || {}}
+          updateCircuitState={(newState) => updateCircuitState(activeUnit.id, newState)}
         />
-
-        <button
-          onClick={handleNextExercise}
-          style={{ width: '100%', padding: '16px', backgroundColor: isLastUnit ? '#4ade80' : '#2563eb', color: isLastUnit ? '#111' : '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer' }}
-        >
-          {isLastUnit ? "Finish Workout 🎉" : "Next Exercise ➔"}
-        </button>
-
-        <RestTimerPanel
-          restTimeLeft={restTimeLeft}
-          isRestTimerRunning={isRestTimerRunning}
-          onAddTime={addRestTime}
-          onTogglePause={togglePauseRestTimer}
-          onSkip={skipRest}
-        />
-      </div>
+      )}
 
       {/* Workout timeline */}
       <WorkoutTimeline units={workoutUnits} completedSets={allCompletedSets} activeIndex={activeUnitIndex} onSelect={setActiveUnitIndex} />

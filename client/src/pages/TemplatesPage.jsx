@@ -125,7 +125,7 @@ export default function TemplatesPage() {
 
                 <div>
                   <h3 style={{ margin: '0 0 4px 0', color: '#fff' }}>{routine.name}</h3>
-                  <span style={{ fontSize: '0.85rem', color: '#a1a1aa' }}>{routine.exercises?.length || 0} Exercises mapped</span>
+                  <span style={{ fontSize: '0.85rem', color: '#a1a1aa' }}> {routine.blocks?.reduce((sum, block) => sum + (block.exercises?.length || 0), 0) || 0} Exercises mapped</span>
                 </div>
               </div>
               

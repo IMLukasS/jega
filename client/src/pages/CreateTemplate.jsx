@@ -50,7 +50,6 @@ export default function CreateTemplate() {
           block_type: block.block_type,
           rounds: block.rounds || 1,
           round_rest_seconds: block.round_rest_seconds || 0,
-          auto_advance_round: block.auto_advance_round || false,
           exercises: (block.exercises || []).map(ex => ({
             exercise_id: ex.exercise_id || ex.id,
             name: ex.name,
@@ -101,7 +100,6 @@ export default function CreateTemplate() {
       block_type: type,
       rounds: 1,
       round_rest_seconds: 0,
-      auto_advance_round: false,
       exercises: []
     };
     setBlocks([...blocks, newBlock]);
@@ -249,7 +247,6 @@ export default function CreateTemplate() {
       block_type: block.block_type,
       rounds: block.rounds || 1,
       round_rest_seconds: block.round_rest_seconds || 0,
-      auto_advance_round: block.auto_advance_round || false,
       exercises: block.exercises.map(ex => ({
         ...ex,
         rest_seconds: ex.rest_seconds ?? 90,
@@ -324,18 +321,6 @@ export default function CreateTemplate() {
                         newBlocks[blockIndex].round_rest_seconds = Number(e.target.value) || 0;
                         setBlocks(newBlocks);
                       }} style={{ width: '60px', padding: '2px', background: '#111', color: '#fff', border: '1px solid #2d2d2d', borderRadius: '4px', textAlign: 'center' }} />
-                    </label>
-                    <label style={{ color: '#ccc', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      Auto‑advance rounds
-                      <input
-                        type="checkbox"
-                        checked={block.auto_advance_round || false}
-                        onChange={(e) => {
-                          const newBlocks = [...blocks];
-                          newBlocks[blockIndex].auto_advance_round = e.target.checked;
-                          setBlocks(newBlocks);
-                        }}
-                      />
                     </label>
                   </>
                 )}
@@ -492,7 +477,7 @@ export default function CreateTemplate() {
         {isEditMode ? 'Save Changes' : 'Save Template'}
       </button>
 
-      {/* Exercise Library Modal (unchanged) */}
+      {/* Exercise Library Modal */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' }}>
           <div style={{ background: '#1e1e1e', width: '100%', maxWidth: '480px', maxHeight: '85vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #2d2d2d' }}>

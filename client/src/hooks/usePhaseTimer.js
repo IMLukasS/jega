@@ -9,6 +9,12 @@ export const usePhaseTimer = ({ onPhaseComplete } = {}) => {
 
   const endTimeRef = useRef(null);
   const rafRef = useRef(null);
+  // NEW: remembers the wall-clock moment pause() was called, so resume()
+  // can shift the deadline forward by however long we sat paused.
+  // Without this, endTimeRef keeps counting down in real time while
+  // "paused," and resume() silently reveals the lost time instead of
+  // continuing from where the display was frozen.
+  const pausedAtRef = useRef(null);
   const onPhaseCompleteRef = useRef(onPhaseComplete);
   useEffect(() => { onPhaseCompleteRef.current = onPhaseComplete; }, [onPhaseComplete]);
 
@@ -19,6 +25,7 @@ export const usePhaseTimer = ({ onPhaseComplete } = {}) => {
     setPhase(newPhase);
     setTimeLeft(seconds);
     endTimeRef.current = Date.now() + seconds * 1000;
+    pausedAtRef.current = null;
     setIsRunning(true);
   }, []);
 
@@ -93,12 +100,20 @@ export const usePhaseTimer = ({ onPhaseComplete } = {}) => {
   }, [updateTimeLeft]);
 
   const pause = useCallback(() => {
+    if (endTimeRef.current !== null) {
+      pausedAtRef.current = Date.now();
+    }
     setIsRunning(false);
     cancelAnimationFrame(rafRef.current);
   }, []);
 
   const resume = useCallback(() => {
     if (endTimeRef.current !== null && timeLeft > 0) {
+      if (pausedAtRef.current !== null) {
+        const pausedDurationMs = Date.now() - pausedAtRef.current;
+        endTimeRef.current += pausedDurationMs;
+        pausedAtRef.current = null;
+      }
       setIsRunning(true);
     }
   }, [timeLeft]);

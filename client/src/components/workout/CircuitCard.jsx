@@ -9,28 +9,26 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
   const {
     exercises,
     rounds,
-    // NOTE: the routine schema (see CreateTemplate) saves these as
-    // round_rest_seconds / auto_advance_round, same snake_case convention
-    // as every other field on the exercise (rest_seconds, auto_advance,
-    // work_seconds, timer_mode...). Reading unit.roundRest / unit.autoAdvanceRound
-    // was always undefined, which silently skipped round rest entirely.
     round_rest_seconds: roundRest,
-    auto_advance_round: autoAdvanceRound,
+    // auto_advance_round removed – derived from last exercise now
   } = unit;
 
-  // Destructure persisted state (or defaults)
   const {
     currentRound = 1,
     currentStationIndex = 0,
-    // 'pre' | 'active' | 'work' | 'rest' | 'rest_manual_advance' | 'round_rest' | 'round_pending' | 'completed'
     phaseState = 'pre',
     loggedSets = [],
   } = circuitState || {};
 
   const totalStations = exercises.length;
   const currentExercise = exercises[currentStationIndex];
+  const lastExercise = exercises[totalStations - 1]; // gates round auto-start
 
-  // Timer hook (for work/rest/round-rest)
+  // Ref to remember if the transition to the current station was automatic
+  // (via auto_advance) or manual (user tap). Only auto transitions auto-start timers.
+  const autoStartRef = useRef(false);
+
+  // Timer hook
   const {
     timeLeft,
     isRunning,
@@ -49,7 +47,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
       } else if (completedPhase === 'round_rest') {
         prepareNextRound();
       }
-    }
+    },
   });
 
   // Stopwatch state
@@ -57,10 +55,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
   const [stopwatchElapsed, setStopwatchElapsed] = useState(0);
   const stopwatchInterval = useRef(null);
 
-  // Manual-log input state (for timer_mode === 'manual' stations) — this is
-  // what lets manual stations behave like a normal exercise screen: the
-  // person enters what they actually did instead of the plan being
-  // auto-logged for them.
+  // Manual‑log inputs
   const [actualWeight, setActualWeight] = useState('');
   const [actualReps, setActualReps] = useState('');
   const [actualTimeMin, setActualTimeMin] = useState('');
@@ -68,7 +63,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
   const [actualDistance, setActualDistance] = useState('');
   const [actualRpe, setActualRpe] = useState('');
 
-  // Reset manual inputs to the planned target whenever we land on a new station
+  // Seed manual inputs from planned set when station/round changes
   useEffect(() => {
     const planned = currentExercise?.sets?.[0];
     setActualWeight(planned?.weight != null ? String(toDisplayWeight(planned.weight, userUnit)) : '');
@@ -80,7 +75,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStationIndex, currentRound]);
 
-  // --- Persist state to parent whenever any key changes ---
+  // Persist state to parent
   useEffect(() => {
     updateCircuitState?.({
       currentRound,
@@ -110,13 +105,11 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
           time_minutes: plannedSet.time_minutes || 0,
           time_seconds: plannedSet.time_seconds || 0,
           distance: plannedSet.distance || 0,
-          rpe: null
-        })
+          rpe: null,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
-        // was: setLoggedSets(...) — that function doesn't exist here,
-        // loggedSets is derived from circuitState, not local state.
         updateCircuitState({ loggedSets: [...loggedSets, data] });
       }
     } catch (err) {
@@ -131,11 +124,11 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
   };
 
   const handleStationComplete = () => {
-    // If auto_advance is false for this exercise, pause and wait for user
     if (!currentExercise?.auto_advance) {
       updateCircuitState({ phaseState: 'rest_manual_advance' });
       return;
     }
+    autoStartRef.current = true; // mark automatic transition
     advanceStation();
   };
 
@@ -143,66 +136,61 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
     if (currentStationIndex < totalStations - 1) {
       updateCircuitState({
         currentStationIndex: currentStationIndex + 1,
-        phaseState: 'active' // will trigger station start logic
+        phaseState: 'active',
       });
     } else {
       // End of round
       if (currentRound < rounds) {
         if (roundRest > 0) {
-          // Go to round rest
           startPhaseTimer('round_rest', roundRest);
           updateCircuitState({ phaseState: 'round_rest' });
         } else {
           prepareNextRound();
         }
       } else {
-        // All rounds complete
         updateCircuitState({ phaseState: 'completed' });
       }
     }
   };
 
-  // Move on to the next round once round rest ends. If round auto-advance
-  // is on, jump straight into round N+1; otherwise stop on a
-  // "Round N+1 of Total — Start Circuit" screen and wait for the person.
   const prepareNextRound = () => {
+    const shouldAutoStart = !!lastExercise?.auto_advance;
+    autoStartRef.current = shouldAutoStart;
     updateCircuitState({
       currentRound: currentRound + 1,
       currentStationIndex: 0,
-      phaseState: autoAdvanceRound ? 'active' : 'round_pending'
+      phaseState: shouldAutoStart ? 'active' : 'round_pending',
     });
   };
 
-  // --- Station start logic (when entering 'active' or after round restart) ---
+  // Station start effect – only auto-starts when we arrived automatically
   useEffect(() => {
     if (phaseState !== 'active' || !currentExercise) return;
+    if (!autoStartRef.current) return; // manual entry, do nothing
+    autoStartRef.current = false; // consume the flag
+
     if (currentExercise.timer_mode === 'countdown' && currentExercise.work_seconds) {
-      // Automatically start work timer
       startPhaseTimer('work', currentExercise.work_seconds);
       updateCircuitState({ phaseState: 'work' });
     } else if (currentExercise.timer_mode === 'stopwatch') {
-      // Wait for user to start stopwatch
-      // phaseState stays 'active' (shows start button)
-    } else {
-      // Manual mode: wait for user to log
-      // phaseState stays 'active'
+      startStopwatch();
     }
+    // manual mode: nothing to auto-start, form is already shown
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phaseState, currentExercise]);
+  }, [phaseState, currentStationIndex, currentRound]);
 
   // --- Stopwatch controls ---
   const startStopwatch = () => {
     setStopwatchRunning(true);
     setStopwatchElapsed(0);
     stopwatchInterval.current = setInterval(() => {
-      setStopwatchElapsed(prev => prev + 1);
+      setStopwatchElapsed((prev) => prev + 1);
     }, 1000);
   };
 
   const stopStopwatch = async () => {
     clearInterval(stopwatchInterval.current);
     setStopwatchRunning(false);
-    // Log with elapsed time
     const mins = Math.floor(stopwatchElapsed / 60);
     const secs = stopwatchElapsed % 60;
     const plannedSet = currentExercise?.sets?.[0];
@@ -218,25 +206,25 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
           time_minutes: mins,
           time_seconds: secs,
           distance: plannedSet?.distance || 0,
-          rpe: null
-        })
+          rpe: null,
+        }),
       });
       if (res.ok) {
-        // was missing entirely — stopwatch sets never got recorded into loggedSets
         const data = await res.json();
         updateCircuitState({ loggedSets: [...loggedSets, data] });
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
     startRestPhase();
   };
 
-  // --- Manual log: record what was actually done, not the plan ---
+  // --- Manual log ---
   const handleManualLog = async (e) => {
     e.preventDefault();
     if (!currentExercise || !workoutId) return;
     const baseKg = actualWeight !== '' ? toBaseKg(Number(actualWeight), userUnit) : 0;
     const setNumber = (currentRound - 1) * totalStations + currentStationIndex + 1;
-
     try {
       const res = await fetchWithAuth(`/api/v1/workouts/${workoutId}/sets`, {
         method: 'POST',
@@ -248,8 +236,8 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
           time_minutes: actualTimeMin !== '' ? Number(actualTimeMin) : 0,
           time_seconds: actualTimeSec !== '' ? Number(actualTimeSec) : 0,
           distance: actualDistance !== '' ? Number(actualDistance) : 0,
-          rpe: actualRpe !== '' ? Number(actualRpe) : null
-        })
+          rpe: actualRpe !== '' ? Number(actualRpe) : null,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -261,13 +249,13 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
     startRestPhase();
   };
 
-  // --- Manual advance after rest (when auto_advance off) ---
+  // --- Manual advance (after rest when auto_advance off) ---
   const handleManualAdvance = () => {
+    autoStartRef.current = false; // explicit tap, no auto-start
     advanceStation();
   };
 
-  // --- Shared "ready to start" screen (initial pre-screen, and the
-  // between-round screen when round auto-advance is off) ---
+  // --- Start screen (shared) ---
   const renderStartScreen = (heading, onStart) => (
     <div style={{ backgroundColor: '#1e1e1e', border: '1px solid #eab308', borderRadius: '12px', padding: '20px', flex: '1' }}>
       <h2 style={{ color: '#eab308', margin: '0 0 16px 0' }}>{heading}</h2>
@@ -296,23 +284,23 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
     </div>
   );
 
-  // --- Pre‑start screen ---
+  // --- Pre‑start ---
   if (phaseState === 'pre') {
     return renderStartScreen(
       `🔄 Circuit — ${rounds} round${rounds > 1 ? 's' : ''}`,
-      () => updateCircuitState({ phaseState: 'active' })
+      () => { autoStartRef.current = false; updateCircuitState({ phaseState: 'active' }); }
     );
   }
 
-  // --- Between-round screen (only reached when auto_advance_round is off) ---
+  // --- Round pending ---
   if (phaseState === 'round_pending') {
     return renderStartScreen(
       `🔄 Round ${currentRound}/${rounds}`,
-      () => updateCircuitState({ phaseState: 'active' })
+      () => { autoStartRef.current = false; updateCircuitState({ phaseState: 'active' }); }
     );
   }
 
-  // --- Completed screen ---
+  // --- Completed ---
   if (phaseState === 'completed') {
     return (
       <div style={{ backgroundColor: '#1e1e1e', border: '1px solid #4ade80', borderRadius: '12px', padding: '20px', flex: '1', textAlign: 'center' }}>
@@ -325,19 +313,17 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
     );
   }
 
-  // --- Active states (work/rest/round_rest/manual) ---
+  // --- Active / rest / work / manual ---
   const plannedSet = currentExercise?.sets?.[0];
   const displayWeight = plannedSet?.weight != null ? toDisplayWeight(plannedSet.weight, userUnit) : '—';
   const isWaitingToAdvance = phaseState === 'rest_manual_advance';
 
   return (
     <div style={{ backgroundColor: '#1e1e1e', border: '1px solid #eab308', borderRadius: '12px', padding: '20px', flex: '1' }}>
-      {/* Round indicator */}
       <div style={{ textAlign: 'center', marginBottom: '8px' }}>
         <span style={{ color: '#eab308', fontWeight: 'bold' }}>Round {currentRound}/{rounds}</span>
       </div>
 
-      {/* Current Exercise (large card) */}
       <div style={{ backgroundColor: '#111', border: '1px solid #eab308', borderRadius: '12px', padding: '20px', marginBottom: '16px' }}>
         <h3 style={{ color: '#fff', margin: '0 0 8px 0' }}>{currentExercise?.name}</h3>
         <div style={{ color: '#a1a1aa', marginBottom: '12px', fontSize: '0.9rem' }}>
@@ -348,7 +334,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
           {currentExercise?.tracking_type === 'distance_time' && `Target: ${plannedSet?.distance || 0} mi in ${plannedSet?.time_minutes || 0}m ${plannedSet?.time_seconds || 0}s`}
         </div>
 
-        {/* Universal Rest Timer (when phaseState is 'rest' or 'round_rest') */}
+        {/* Rest / Round rest / Waiting to advance */}
         {(phaseState === 'rest' || phaseState === 'round_rest' || isWaitingToAdvance) && (
           <div style={{ textAlign: 'center' }}>
             {isWaitingToAdvance ? (
@@ -383,7 +369,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
           </div>
         )}
 
-        {/* Work / Stopwatch / Manual start buttons (only when not in rest) */}
+        {/* Work / Stopwatch / Manual (only when not in rest) */}
         {phaseState !== 'rest' && phaseState !== 'round_rest' && !isWaitingToAdvance && (
           <>
             {currentExercise?.timer_mode === 'countdown' && (
@@ -461,7 +447,7 @@ export default function CircuitCard({ unit, workoutId, userUnit, onCircuitComple
         )}
       </div>
 
-      {/* Timeline of other stations */}
+      {/* Timeline of stations */}
       <div style={{ display: 'flex', overflowX: 'auto', gap: '8px', marginBottom: '16px' }}>
         {exercises.map((ex, idx) => {
           const isDone = idx < currentStationIndex || (idx === currentStationIndex && (phaseState === 'rest' || phaseState === 'round_rest' || isWaitingToAdvance));
@@ -495,7 +481,7 @@ const actionBtn = (bg) => ({
   borderRadius: '8px',
   fontWeight: 'bold',
   cursor: 'pointer',
-  marginTop: '8px'
+  marginTop: '8px',
 });
 
 const manualInputStyle = {
@@ -506,5 +492,5 @@ const manualInputStyle = {
   border: '1px solid #2d2d2d',
   background: '#111',
   color: '#fff',
-  textAlign: 'center'
+  textAlign: 'center',
 };

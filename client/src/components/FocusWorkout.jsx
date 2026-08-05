@@ -180,7 +180,13 @@ export default function FocusWorkout() {
       )}
 
       {/* Workout timeline */}
-      <WorkoutTimeline units={workoutUnits} completedSets={allCompletedSets} activeIndex={activeUnitIndex} onSelect={setActiveUnitIndex} />
+      <WorkoutTimeline
+  units={workoutUnits}
+  completedSets={allCompletedSets}
+  circuitStates={circuitStates}
+  activeIndex={activeUnitIndex}
+  onSelect={setActiveUnitIndex}
+/>
     </div>
   );
 }

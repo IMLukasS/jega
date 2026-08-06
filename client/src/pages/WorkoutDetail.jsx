@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../apiClient';
 import { toBaseKg, toDisplayWeight } from '../utils/unitConverter';
+import FreestyleTypeSwitcher from '../components/workout/FreestyleTypeSwitcher';
 
 const formatDate = (isoString) => {
   if (!isoString) return '';
@@ -13,19 +14,13 @@ const formatDate = (isoString) => {
   }).format(date);
 };
 
-// ⏱️ Format raw duration seconds into a clean human-readable log string
 const formatDuration = (totalSeconds) => {
   if (!totalSeconds) return '';
   const hrs = Math.floor(totalSeconds / 3600);
   const mins = Math.floor((totalSeconds % 3600) / 60);
   const secs = totalSeconds % 60;
-  
-  if (hrs > 0) {
-    return `${hrs}h ${mins}m ${secs}s`;
-  }
-  if (mins > 0) {
-    return `${mins}m ${secs}s`;
-  }
+  if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
+  if (mins > 0) return `${mins}m ${secs}s`;
   return `${secs}s`;
 };
 
@@ -33,21 +28,33 @@ export default function WorkoutDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // ⚖️ Dynamically get saved weight unit preference
   const userUnit = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase();
   const weightUnitLabel = userUnit === 'kg' ? 'Kg' : 'Lbs';
-  
+
   const [workout, setWorkout] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Form States for logging a new set (Freestyle mode)
-  const [weight, setWeight] = useState("");
-  const [reps, setReps] = useState("");
-  const [rpe, setRpe] = useState("");
-  const [exerciseId] = useState("c1f00c2b-4ec9-4ccb-8d67-2c52a405a1a7");
+  // Free‑text exercise name (replaces forced picker)
+  const [exerciseName, setExerciseName] = useState('');
+  const [creatingExercise, setCreatingExercise] = useState(false);
 
-  // History Inline Edit States
+  // Add‑set form fields
+  const [weight, setWeight] = useState('');
+  const [reps, setReps] = useState('');
+  const [timeMin, setTimeMin] = useState('');
+  const [timeSec, setTimeSec] = useState('');
+  const [distance, setDistance] = useState('');
+  const [rpe, setRpe] = useState('');
+  const [freestyleTrackingType, setFreestyleTrackingType] = useState('weight_reps');
+
+  // Exercise library (lazy loaded)
+  const [availableExercises, setAvailableExercises] = useState([]);
+  const [exercisesLoaded, setExercisesLoaded] = useState(false);
+  const [exerciseSearchTerm, setExerciseSearchTerm] = useState('');
+  const [showExerciseDropdown, setShowExerciseDropdown] = useState(false);
+
+  // Inline edit states (for existing sets)
   const [editingSetId, setEditingSetId] = useState(null);
   const [editWeight, setEditWeight] = useState('');
   const [editReps, setEditReps] = useState('');
@@ -56,67 +63,121 @@ export default function WorkoutDetail() {
   const [editDist, setEditDist] = useState('');
   const [editRpe, setEditRpe] = useState('');
 
+  // Workout duration editing
+  const [editingDuration, setEditingDuration] = useState(false);
+  const [durationInput, setDurationInput] = useState('');
+
+  const loadExercises = () => {
+    if (exercisesLoaded) return;
+    fetchWithAuth('/api/v1/exercises')
+      .then(res => res.json())
+      .then(data => {
+        setAvailableExercises(Array.isArray(data) ? data : []);
+        setExercisesLoaded(true);
+      })
+      .catch(err => console.error("Error fetching exercises:", err));
+  };
+
+  const filteredExercises = exerciseSearchTerm.trim()
+    ? availableExercises
+        .filter(ex => ex.title.toLowerCase().includes(exerciseSearchTerm.toLowerCase()))
+        .slice(0, 8)
+    : [];
+
+  // Fetch workout data
   useEffect(() => {
     fetchWithAuth(`/api/v1/workouts/${id}`)
-      .then((res) => {
+      .then(res => {
         if (!res.ok) throw new Error('Failed to load workout');
         return res.json();
       })
-      .then((data) => {
+      .then(data => {
         setWorkout(data);
         setLoading(false);
       })
-      .catch((err) => {
+      .catch(err => {
         console.error(err);
         setError(err.message);
         setLoading(false);
       });
   }, [id]);
 
-  const handleAddSet = (e) => {
-    e.preventDefault();
-    if (!weight || !reps) return;
+  // Resolve or create exercise
+  const resolveExercise = async (name) => {
+    const trimmed = name.trim();
+    const existing = availableExercises.find(
+      ex => ex.title.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing) return existing;
 
-    const nextSetNumber = workout.sets ? workout.sets.length + 1 : 1;
-
-    // ⚖️ Convert typed weight (Lbs or Kg) into base kilograms for backend API
-    const baseKg = toBaseKg(weight, userUnit);
-
-    fetchWithAuth(`/api/v1/workouts/${id}/sets`, {
+    const res = await fetchWithAuth('/api/v1/exercises', {
       method: 'POST',
-      body: JSON.stringify({
-        exercise_id: exerciseId,
-        set_number: nextSetNumber,
-        actual_weight_kg: baseKg,
-        actual_reps: parseInt(reps, 10),
-        rpe: rpe ? parseFloat(rpe) : null
-      })
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to log set");
-        return res.json();
-      })
-      .then((newSet) => {
-        newSet.exercise_name = "Freestyle Exercise"; 
-        newSet.tracking_type = "weight_reps"; 
-        
-        setWorkout({
-          ...workout,
-          sets: [...(workout.sets || []), newSet]
-        });
-        
-        setWeight("");
-        setReps("");
-        setRpe("");
-      })
-      .catch((err) => console.error("Error logging set:", err));
+      body: JSON.stringify({ title: trimmed })
+    });
+    if (!res.ok) throw new Error('Failed to create exercise');
+    const created = await res.json();
+    setAvailableExercises(prev => [...prev, created]);
+    return created;
+  };
+
+  const handleAddSet = async (e) => {
+    e.preventDefault();
+    if (!exerciseName.trim() || creatingExercise) return;
+
+    // Basic validation per tracking type
+    if (freestyleTrackingType === 'weight_reps' && (!weight || !reps)) return;
+    if (freestyleTrackingType === 'bodyweight_reps' && !reps) return;
+    if (freestyleTrackingType === 'time' && !timeMin && !timeSec) return;
+    if (freestyleTrackingType === 'time_weight' && (!weight || (!timeMin && !timeSec))) return;
+    if (freestyleTrackingType === 'distance_time' && (!distance || (!timeMin && !timeSec))) return;
+
+    setCreatingExercise(true);
+    try {
+      const exercise = await resolveExercise(exerciseName);
+      const nextSetNumber = workout.sets ? workout.sets.length + 1 : 1;
+      const baseKg = weight ? toBaseKg(weight, userUnit) : 0;
+
+      const res = await fetchWithAuth(`/api/v1/workouts/${id}/sets`, {
+        method: 'POST',
+        body: JSON.stringify({
+          exercise_id: exercise.id,
+          set_number: nextSetNumber,
+          actual_weight_kg: baseKg,
+          actual_reps: reps ? parseInt(reps, 10) : 0,
+          time_minutes: timeMin ? Number(timeMin) : 0,
+          time_seconds: timeSec ? Number(timeSec) : 0,
+          distance: distance ? Number(distance) : 0,
+          rpe: rpe ? parseFloat(rpe) : null
+        })
+      });
+      if (!res.ok) throw new Error('Failed to log set');
+      const newSet = await res.json();
+      newSet.exercise_name = exercise.title;
+      newSet.tracking_type = freestyleTrackingType;
+
+      setWorkout(prev => ({
+        ...prev,
+        sets: [...(prev.sets || []), newSet]
+      }));
+
+      // Clear numeric fields, keep exercise name and tracking type
+      setWeight('');
+      setReps('');
+      setRpe('');
+      setTimeMin('');
+      setTimeSec('');
+      setDistance('');
+    } catch (err) {
+      console.error('Error logging set:', err);
+      alert('Could not log set: ' + err.message);
+    } finally {
+      setCreatingExercise(false);
+    }
   };
 
   const handleUpdateHistorySet = async (setId) => {
     try {
-      // ⚖️ Convert edited weight (Lbs or Kg) back to base kilograms for API
       const baseKg = editWeight === '' ? 0 : toBaseKg(editWeight, userUnit);
-
       const response = await fetchWithAuth(`/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -128,14 +189,12 @@ export default function WorkoutDetail() {
           rpe: editRpe === '' ? null : Number(editRpe)
         })
       });
-
       if (response.ok) {
         const updatedSet = await response.json();
-        
         setWorkout(prev => ({
           ...prev,
-          sets: prev.sets.map(s => s.id === setId ? { 
-            ...s, 
+          sets: prev.sets.map(s => s.id === setId ? {
+            ...s,
             actual_weight_kg: updatedSet.actual_weight_kg ?? baseKg,
             actual_reps: updatedSet.actual_reps,
             time_minutes: updatedSet.time_minutes,
@@ -144,8 +203,7 @@ export default function WorkoutDetail() {
             rpe: updatedSet.rpe
           } : s)
         }));
-        
-        setEditingSetId(null); 
+        setEditingSetId(null);
       }
     } catch (error) {
       console.error("Failed to update historical set", error);
@@ -155,20 +213,18 @@ export default function WorkoutDetail() {
   const handleDeleteHistorySet = async (setId) => {
     const isSure = window.confirm("Are you sure you want to delete this set?");
     if (!isSure) return;
-
     try {
       const response = await fetchWithAuth(`/api/v1/workouts/${id}/sets/${setId}`, {
         method: 'DELETE'
       });
-
       if (response.ok) {
         setWorkout(prev => ({
           ...prev,
           sets: prev.sets.filter(s => s.id !== setId)
         }));
-        setEditingSetId(null); 
+        setEditingSetId(null);
       } else {
-        alert("Failed to delete the set. Make sure the backend is running.");
+        alert("Failed to delete the set.");
       }
     } catch (error) {
       console.error("Error deleting set:", error);
@@ -177,12 +233,9 @@ export default function WorkoutDetail() {
 
   const startInlineEdit = (set) => {
     setEditingSetId(set.id);
-
-    // ⚖️ Dynamically format editing weight to active user preference unit
-    const displayWeight = set.actual_weight_kg != null 
-      ? String(toDisplayWeight(set.actual_weight_kg, userUnit)) 
+    const displayWeight = set.actual_weight_kg != null
+      ? String(toDisplayWeight(set.actual_weight_kg, userUnit))
       : '';
-
     setEditWeight(displayWeight);
     setEditReps(set.actual_reps ?? '');
     setEditMin(set.time_minutes ?? '');
@@ -191,16 +244,36 @@ export default function WorkoutDetail() {
     setEditRpe(set.rpe ?? '');
   };
 
+  // Duration editing handlers
+  const startEditDuration = () => {
+    setDurationInput(workout.duration_seconds ? String(Math.round(workout.duration_seconds / 60)) : '');
+    setEditingDuration(true);
+  };
+
+  const handleSaveDuration = async () => {
+    const totalSeconds = Math.round((durationInput === '' ? 0 : Number(durationInput)) * 60);
+    try {
+      const res = await fetchWithAuth(`/api/v1/workouts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ duration_seconds: totalSeconds })
+      });
+      if (res.ok) {
+        setWorkout(prev => ({ ...prev, duration_seconds: totalSeconds }));
+        setEditingDuration(false);
+      }
+    } catch (err) {
+      console.error('Failed to save duration', err);
+    }
+  };
+
   if (loading) return <div className="app-container"><p style={{ color: '#888' }}>Loading workout...</p></div>;
   if (error) return <div className="app-container"><p style={{ color: '#ff4444' }}>{error}</p></div>;
   if (!workout) return <div className="app-container"><p>Workout not found.</p></div>;
 
-  // Sort sets internally to ensure timestamps/set numbers align
-  const sortedSets = workout.sets 
+  const sortedSets = workout.sets
     ? [...workout.sets].sort((a, b) => a.set_number - b.set_number)
     : [];
 
-  // Group the sets by exercise name
   const groupedSets = sortedSets.reduce((acc, set) => {
     const name = set.exercise_name || 'Unknown Exercise';
     if (!acc[name]) acc[name] = [];
@@ -208,83 +281,80 @@ export default function WorkoutDetail() {
     return acc;
   }, {});
 
-  // Sort the entire exercise dictionary by its structural sequence_order
   const orderedGroupedEntries = Object.entries(groupedSets).sort((a, b) => {
     const orderA = a[1][0]?.sequence_order ?? 999;
     const orderB = b[1][0]?.sequence_order ?? 999;
     return orderA - orderB;
   });
 
+  const inputStyle = {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '10px',
+    borderRadius: '8px',
+    border: '1px solid #2d2d2d',
+    background: '#111',
+    color: '#fff',
+    textAlign: 'center'
+  };
+
   return (
     <div className="app-container">
       <header>
-        <button 
-          onClick={() => navigate('/')} 
-          style={{ background: 'transparent', color: '#888', padding: '0', marginBottom: '10px', border: 'none', fontSize: '1rem', cursor: 'pointer' }}
-        >
+        <button onClick={() => navigate('/')} style={{ background: 'transparent', color: '#888', padding: '0', marginBottom: '10px', border: 'none', fontSize: '1rem', cursor: 'pointer' }}>
           ← Back to History
         </button>
-        
-        {/* Title and stopwatch duration alignment flex row */}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '4px' }}>
           <h1 style={{ margin: 0 }}>{workout.name}</h1>
-          
-          {workout.duration_seconds > 0 && (
-            <div style={{
-              backgroundColor: '#2d2d34',
-              color: '#10b981',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              fontWeight: '700',
-              fontSize: '0.9rem',
-              fontFamily: 'monospace',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
+
+          {editingDuration ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input type="number" min="0" autoFocus placeholder="min" value={durationInput}
+                onChange={(e) => setDurationInput(e.target.value)}
+                style={{ width: '60px', padding: '4px 8px', borderRadius: '6px', background: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
+              <span style={{ color: '#888', fontSize: '0.85rem' }}>min</span>
+              <button onClick={handleSaveDuration} style={{ background: '#4ade80', color: '#111', border: 'none', padding: '4px 10px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
+              <button onClick={() => setEditingDuration(false)} style={{ background: '#444', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer' }}>✕</button>
+            </div>
+          ) : workout.duration_seconds > 0 ? (
+            <div onClick={startEditDuration} title="Tap to edit" style={{ backgroundColor: '#2d2d34', color: '#10b981', padding: '4px 10px', borderRadius: '6px', fontWeight: '700', fontSize: '0.9rem', fontFamily: 'monospace', cursor: 'pointer' }}>
               ⏱️ {formatDuration(workout.duration_seconds)}
             </div>
+          ) : (
+            <button onClick={startEditDuration} style={{ background: 'transparent', border: '1px dashed #444', color: '#888', padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer' }}>
+              + Add duration
+            </button>
           )}
         </div>
-        
         <span className="subtitle">{formatDate(workout.started_at)}</span>
       </header>
 
       <div className="workout-list">
         {orderedGroupedEntries.length > 0 ? (
-            orderedGroupedEntries.map(([exerciseName, setsForExercise]) => (
-            <div key={exerciseName} style={{ marginBottom: '24px' }}>
-              
+          orderedGroupedEntries.map(([exName, setsForExercise]) => (
+            <div key={exName} style={{ marginBottom: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '10px', borderBottom: '2px solid #2d2d2d', paddingBottom: '6px' }}>
-                <h3 style={{ fontSize: '1.2rem', margin: 0, color: '#fff' }}>
-                  {exerciseName}
-                </h3>
-                
+                <h3 style={{ fontSize: '1.2rem', margin: 0, color: '#fff' }}>{exName}</h3>
                 {setsForExercise[0]?.tags && setsForExercise[0].tags.length > 0 && (
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {setsForExercise[0].tags.map((tag, tagIndex) => (
-                      <span 
-                        key={tagIndex} 
-                        style={{ background: '#2563eb', color: '#fff', padding: '3px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold' }}
-                      >
-                        {tag}
-                      </span>
+                      <span key={tagIndex} style={{ background: '#2563eb', color: '#fff', padding: '3px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold' }}>{tag}</span>
                     ))}
                   </div>
                 )}
               </div>
-              
-              {/* Individual Sets */}
+
               {setsForExercise.map((set, index) => {
                 const isEditingRow = editingSetId === set.id;
                 const displayWeight = toDisplayWeight(set.actual_weight_kg || 0, userUnit);
 
                 return (
                   <div key={set.id} className="workout-card" style={{ padding: '12px', marginBottom: '8px' }}>
-                    
                     {isEditingRow ? (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
                         <span style={{ fontWeight: '600', color: '#888', marginRight: '4px' }}>Set {index + 1}</span>
-                        
+
                         {set.tracking_type === 'time' ? (
                           <>
                             <input type="number" placeholder="Min" value={editMin} onChange={e => setEditMin(e.target.value)} style={{ width: '55px', padding: '6px', borderRadius: '6px', backgroundColor: '#111', color: '#fff', border: '1px solid #444', textAlign: 'center' }} />
@@ -315,9 +385,7 @@ export default function WorkoutDetail() {
 
                         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
                           <button onClick={() => handleUpdateHistorySet(set.id)} style={{ backgroundColor: '#4ade80', color: '#111', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
-                          
                           <button onClick={() => handleDeleteHistorySet(set.id)} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Delete</button>
-                          
                           <button onClick={() => setEditingSetId(null)} style={{ backgroundColor: '#444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
                         </div>
                       </div>
@@ -326,22 +394,19 @@ export default function WorkoutDetail() {
                         <span style={{ fontWeight: '600' }}>Set {index + 1}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <span style={{ fontWeight: 'bold' }}>
-                            {/* ⚖️ Dynamically rendered converted weight */}
-                            {set.tracking_type === 'time' 
+                            {set.tracking_type === 'time'
                               ? `${set.time_minutes || 0}m ${set.time_seconds || 0}s`
-                            : set.tracking_type === 'distance_time' 
+                              : set.tracking_type === 'distance_time'
                               ? `${set.distance || 0} mi in ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
-                            : set.tracking_type === 'time_weight'
+                              : set.tracking_type === 'time_weight'
                               ? `${displayWeight} ${weightUnitLabel.toLowerCase()} for ${set.time_minutes || 0}m ${set.time_seconds || 0}s`
-                            : set.tracking_type === 'bodyweight_reps'
+                              : set.tracking_type === 'bodyweight_reps'
                               ? `${set.actual_reps || 0} reps`
-                            : 
-                              `${displayWeight} ${weightUnitLabel.toLowerCase()} × ${set.actual_reps || 0} reps`
+                              : `${displayWeight} ${weightUnitLabel.toLowerCase()} × ${set.actual_reps || 0} reps`
                             }
                           </span>
                           {set.rpe && <span style={{ color: '#888', fontSize: '0.85rem' }}>RPE {set.rpe}</span>}
-                          
-                          <button 
+                          <button
                             type="button"
                             onClick={() => startInlineEdit(set)}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', padding: 0, marginLeft: '4px' }}
@@ -351,7 +416,6 @@ export default function WorkoutDetail() {
                         </div>
                       </div>
                     )}
-
                   </div>
                 );
               })}
@@ -366,20 +430,83 @@ export default function WorkoutDetail() {
 
       <div className="add-set-section">
         <h3>Log Freestyle Set</h3>
-        <form onSubmit={handleAddSet} className="workout-form" style={{ marginTop: '10px' }}>
-          <input 
-            type="number" placeholder={weightUnitLabel.toLowerCase()} step="0.1" required
-            value={weight} onChange={(e) => setWeight(e.target.value)}
-          />
-          <input 
-            type="number" placeholder="reps" required
-            value={reps} onChange={(e) => setReps(e.target.value)}
-          />
-          <input 
-            type="number" placeholder="RPE" step="0.5" max="10"
-            value={rpe} onChange={(e) => setRpe(e.target.value)}
-          />
-          <button type="submit">＋</button>
+
+        <form onSubmit={handleAddSet} style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}>
+          <div style={{ position: 'relative', gridColumn: '1 / -1' }}>
+            <input
+              type="text"
+              placeholder="Exercise name..."
+              value={exerciseName}
+              onFocus={() => { loadExercises(); setShowExerciseDropdown(true); }}
+              onChange={(e) => { setExerciseName(e.target.value); setShowExerciseDropdown(true); }}
+              onBlur={() => setTimeout(() => setShowExerciseDropdown(false), 150)}
+              required
+              style={{ ...inputStyle, textAlign: 'left' }}
+            />
+            {showExerciseDropdown && filteredExercises.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#1e1e1e', border: '1px solid #2d2d2d', borderRadius: '8px', marginTop: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                {filteredExercises.map(ex => (
+                  <div
+                    key={ex.id}
+                    onMouseDown={() => { setExerciseName(ex.title); setShowExerciseDropdown(false); }}
+                    style={{ padding: '10px 12px', cursor: 'pointer', color: '#fff', borderBottom: '1px solid #2d2d2d' }}
+                  >
+                    {ex.title}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ gridColumn: '1 / -1' }}>
+            <FreestyleTypeSwitcher currentType={freestyleTrackingType} onTypeChange={setFreestyleTrackingType} />
+          </div>
+
+          {freestyleTrackingType === 'time' && (
+            <>
+              <input type="number" placeholder="min" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} style={inputStyle} />
+              <input type="number" placeholder="sec" value={timeSec} onChange={(e) => setTimeSec(e.target.value)} style={inputStyle} />
+            </>
+          )}
+          {freestyleTrackingType === 'distance_time' && (
+            <>
+              <input type="number" step="0.1" placeholder="mi" value={distance} onChange={(e) => setDistance(e.target.value)} style={inputStyle} />
+              <input type="number" placeholder="min" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} style={inputStyle} />
+              <input type="number" placeholder="sec" value={timeSec} onChange={(e) => setTimeSec(e.target.value)} style={inputStyle} />
+            </>
+          )}
+          {freestyleTrackingType === 'time_weight' && (
+            <>
+              <input type="number" step="0.1" placeholder={weightUnitLabel.toLowerCase()} value={weight} onChange={(e) => setWeight(e.target.value)} style={inputStyle} />
+              <input type="number" placeholder="min" value={timeMin} onChange={(e) => setTimeMin(e.target.value)} style={inputStyle} />
+              <input type="number" placeholder="sec" value={timeSec} onChange={(e) => setTimeSec(e.target.value)} style={inputStyle} />
+            </>
+          )}
+          {freestyleTrackingType === 'bodyweight_reps' && (
+            <input type="number" placeholder="reps" value={reps} onChange={(e) => setReps(e.target.value)} style={inputStyle} />
+          )}
+          {freestyleTrackingType === 'weight_reps' && (
+            <>
+              <input type="number" step="0.1" placeholder={weightUnitLabel.toLowerCase()} value={weight} onChange={(e) => setWeight(e.target.value)} style={inputStyle} />
+              <input type="number" placeholder="reps" value={reps} onChange={(e) => setReps(e.target.value)} style={inputStyle} />
+            </>
+          )}
+
+          <input type="number" placeholder="RPE" step="0.5" max="10" value={rpe} onChange={(e) => setRpe(e.target.value)} style={inputStyle} />
+
+          <button type="submit" disabled={creatingExercise} style={{
+            gridColumn: '1 / -1',
+            padding: '12px',
+            background: '#4ade80',
+            color: '#111',
+            border: 'none',
+            borderRadius: '8px',
+            fontWeight: 'bold',
+            cursor: creatingExercise ? 'wait' : 'pointer',
+            opacity: creatingExercise ? 0.6 : 1
+          }}>
+            {creatingExercise ? 'Logging…' : '+ Log Set'}
+          </button>
         </form>
       </div>
     </div>

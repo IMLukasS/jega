@@ -53,6 +53,21 @@ export default function Dashboard() {
       });
   }, [todayStr]);
 
+  const handleStartFreestyle = async () => {
+    try {
+      const res = await fetchWithAuth('/api/v1/workouts', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Freestyle Workout', routine_id: null })
+      });
+      if (!res.ok) throw new Error('Failed to start freestyle workout');
+      const data = await res.json();
+      navigate(`/workouts/${data.id}`); // straight to WorkoutDetail, no live session at all
+    } catch (err) {
+      console.error('Error starting freestyle workout:', err);
+      alert('Could not start freestyle workout. Verify backend is running.');
+    }
+  };
+
   const handleDeleteWorkout = async (workoutId) => {
     try {
       const response = await fetchWithAuth(`/api/v1/workouts/${workoutId}`, {
@@ -210,6 +225,16 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <button
+        onClick={handleStartFreestyle}
+        style={{
+          width: '100%', padding: '14px', marginBottom: '20px',
+          background: '#111', color: '#4ade80', border: '1px dashed #2d2d2d',
+          borderRadius: '12px', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer'
+        }}>
+        + Log Freestyle Workout
+      </button>
 
       {/* 🚀 QUICK NAVIGATION CARDS */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>

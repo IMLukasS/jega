@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../apiClient';
 import { toBaseKg, toDisplayWeight } from '../utils/unitConverter';
 import FreestyleTypeSwitcher from '../components/workout/FreestyleTypeSwitcher';
+import ExercisePicker from '../components/common/ExercisePicker';
 
 const formatDate = (isoString) => {
   if (!isoString) return '';
@@ -35,9 +36,11 @@ export default function WorkoutDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Free‑text exercise name (replaces forced picker)
+  // Selected exercise state
   const [exerciseName, setExerciseName] = useState('');
-  const [creatingExercise, setCreatingExercise] = useState(false);
+  const [exerciseId, setExerciseId] = useState(null);
+
+  const pickerRef = useRef(null);
 
   // Add‑set form fields
   const [weight, setWeight] = useState('');
@@ -47,12 +50,6 @@ export default function WorkoutDetail() {
   const [distance, setDistance] = useState('');
   const [rpe, setRpe] = useState('');
   const [freestyleTrackingType, setFreestyleTrackingType] = useState('weight_reps');
-
-  // Exercise library (lazy loaded)
-  const [availableExercises, setAvailableExercises] = useState([]);
-  const [exercisesLoaded, setExercisesLoaded] = useState(false);
-  const [exerciseSearchTerm, setExerciseSearchTerm] = useState('');
-  const [showExerciseDropdown, setShowExerciseDropdown] = useState(false);
 
   // Inline edit states (for existing sets)
   const [editingSetId, setEditingSetId] = useState(null);
@@ -66,23 +63,6 @@ export default function WorkoutDetail() {
   // Workout duration editing
   const [editingDuration, setEditingDuration] = useState(false);
   const [durationInput, setDurationInput] = useState('');
-
-  const loadExercises = () => {
-    if (exercisesLoaded) return;
-    fetchWithAuth('/api/v1/exercises')
-      .then(res => res.json())
-      .then(data => {
-        setAvailableExercises(Array.isArray(data) ? data : []);
-        setExercisesLoaded(true);
-      })
-      .catch(err => console.error("Error fetching exercises:", err));
-  };
-
-  const filteredExercises = exerciseSearchTerm.trim()
-    ? availableExercises
-        .filter(ex => ex.title.toLowerCase().includes(exerciseSearchTerm.toLowerCase()))
-        .slice(0, 8)
-    : [];
 
   // Fetch workout data
   useEffect(() => {
@@ -102,27 +82,24 @@ export default function WorkoutDetail() {
       });
   }, [id]);
 
-  // Resolve or create exercise
-  const resolveExercise = async (name) => {
-    const trimmed = name.trim();
-    const existing = availableExercises.find(
-      ex => ex.title.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (existing) return existing;
-
-    const res = await fetchWithAuth('/api/v1/exercises', {
-      method: 'POST',
-      body: JSON.stringify({ title: trimmed })
-    });
-    if (!res.ok) throw new Error('Failed to create exercise');
-    const created = await res.json();
-    setAvailableExercises(prev => [...prev, created]);
-    return created;
-  };
+  function handleExerciseSelected(exercise) {
+    setExerciseName(exercise.title);
+    setExerciseId(exercise.id);
+  }
 
   const handleAddSet = async (e) => {
     e.preventDefault();
-    if (!exerciseName.trim() || creatingExercise) return;
+    if (!pickerRef.current) return;
+
+    const exercise = await pickerRef.current.resolveCurrent();
+    
+    if (!exercise) {
+      alert('Please select or type an exercise name.');
+      return;
+    }
+
+    setExerciseId(exercise.id);
+    setExerciseName(exercise.title);
 
     // Basic validation per tracking type
     if (freestyleTrackingType === 'weight_reps' && (!weight || !reps)) return;
@@ -131,9 +108,7 @@ export default function WorkoutDetail() {
     if (freestyleTrackingType === 'time_weight' && (!weight || (!timeMin && !timeSec))) return;
     if (freestyleTrackingType === 'distance_time' && (!distance || (!timeMin && !timeSec))) return;
 
-    setCreatingExercise(true);
     try {
-      const exercise = await resolveExercise(exerciseName);
       const nextSetNumber = workout.sets ? workout.sets.length + 1 : 1;
       const baseKg = weight ? toBaseKg(weight, userUnit) : 0;
 
@@ -160,7 +135,7 @@ export default function WorkoutDetail() {
         sets: [...(prev.sets || []), newSet]
       }));
 
-      // Clear numeric fields, keep exercise name and tracking type
+      // Clear numeric fields, keep exercise name, ID and tracking type
       setWeight('');
       setReps('');
       setRpe('');
@@ -170,8 +145,6 @@ export default function WorkoutDetail() {
     } catch (err) {
       console.error('Error logging set:', err);
       alert('Could not log set: ' + err.message);
-    } finally {
-      setCreatingExercise(false);
     }
   };
 
@@ -432,30 +405,13 @@ export default function WorkoutDetail() {
         <h3>Log Freestyle Set</h3>
 
         <form onSubmit={handleAddSet} style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}>
-          <div style={{ position: 'relative', gridColumn: '1 / -1' }}>
-            <input
-              type="text"
-              placeholder="Exercise name..."
-              value={exerciseName}
-              onFocus={() => { loadExercises(); setShowExerciseDropdown(true); }}
-              onChange={(e) => { setExerciseName(e.target.value); setShowExerciseDropdown(true); }}
-              onBlur={() => setTimeout(() => setShowExerciseDropdown(false), 150)}
-              required
-              style={{ ...inputStyle, textAlign: 'left' }}
+          
+          <div style={{ gridColumn: '1 / -1' }}>
+            <ExercisePicker
+              ref={pickerRef}
+              onSelect={handleExerciseSelected} 
+              placeholder="Log an exercise…" 
             />
-            {showExerciseDropdown && filteredExercises.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#1e1e1e', border: '1px solid #2d2d2d', borderRadius: '8px', marginTop: '4px', maxHeight: '200px', overflowY: 'auto' }}>
-                {filteredExercises.map(ex => (
-                  <div
-                    key={ex.id}
-                    onMouseDown={() => { setExerciseName(ex.title); setShowExerciseDropdown(false); }}
-                    style={{ padding: '10px 12px', cursor: 'pointer', color: '#fff', borderBottom: '1px solid #2d2d2d' }}
-                  >
-                    {ex.title}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           <div style={{ gridColumn: '1 / -1' }}>
@@ -494,7 +450,7 @@ export default function WorkoutDetail() {
 
           <input type="number" placeholder="RPE" step="0.5" max="10" value={rpe} onChange={(e) => setRpe(e.target.value)} style={inputStyle} />
 
-          <button type="submit" disabled={creatingExercise} style={{
+          <button type="submit" style={{
             gridColumn: '1 / -1',
             padding: '12px',
             background: '#4ade80',
@@ -502,10 +458,10 @@ export default function WorkoutDetail() {
             border: 'none',
             borderRadius: '8px',
             fontWeight: 'bold',
-            cursor: creatingExercise ? 'wait' : 'pointer',
-            opacity: creatingExercise ? 0.6 : 1
+            cursor: 'pointer',
+            opacity: 1
           }}>
-            {creatingExercise ? 'Logging…' : '+ Log Set'}
+            + Log Set
           </button>
         </form>
       </div>

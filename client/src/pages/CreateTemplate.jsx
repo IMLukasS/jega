@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth } from '../apiClient';
 import { toBaseKg, toDisplayWeight } from '../utils/unitConverter';
+import ExercisePicker from '../components/common/ExercisePicker';
 
 export default function CreateTemplate() {
   const navigate = useNavigate();
@@ -16,37 +17,26 @@ export default function CreateTemplate() {
 
   const [name, setName] = useState('');
   const [blocks, setBlocks] = useState([]);
+  const [tagInputs, setTagInputs] = useState({});
 
-  // Adding an exercise – these inputs are global (they fill the "Add Exercise" bar)
-  const [exerciseInput, setExerciseInput] = useState('');
-  const [selectedExerciseId, setSelectedExerciseId] = useState(null);
-  const [tagInputs, setTagInputs] = useState({}); // key: `${blockIndex}-${exIndex}`
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [availableExercises, setAvailableExercises] = useState([]);
-  const [modalSearchTerm, setModalSearchTerm] = useState('');
-  const [selectedBodyPart, setSelectedBodyPart] = useState('');
-  const [selectedEquipment, setSelectedEquipment] = useState('');
-  const [expandedExerciseId, setExpandedExerciseId] = useState(null);
-
-  // Load exercise library for modal
-  useEffect(() => {
-    if (isModalOpen && availableExercises.length === 0) {
-      fetchWithAuth('/api/v1/exercises')
-        .then(res => res.json())
-        .then(data => setAvailableExercises(Array.isArray(data) ? data : []))
-        .catch(err => console.error("Error fetching exercises:", err));
-    }
-  }, [isModalOpen, availableExercises.length]);
+  const setInputStyle = {
+    flex: 1,
+    minWidth: 0,
+    padding: '10px',
+    borderRadius: '6px',
+    border: '1px solid #2d2d2d',
+    background: '#111',
+    color: '#fff',
+    textAlign: 'center',
+  };
 
   // Load existing template into blocks
   useEffect(() => {
     if (isEditMode && templateToEdit) {
       setName(templateToEdit.name);
       if (templateToEdit.blocks) {
-        // Map each block from backend
         const loadedBlocks = templateToEdit.blocks.map(block => ({
-          id: block.id, // keep original ID for server
+          id: block.id,
           block_type: block.block_type,
           rounds: block.rounds || 1,
           round_rest_seconds: block.round_rest_seconds || 0,
@@ -73,66 +63,12 @@ export default function CreateTemplate() {
     }
   }, [isEditMode, templateToEdit, userUnit]);
 
-  // Helpers for filtering library
-  const uniqueBodyParts = [...new Set(availableExercises.map(ex => ex.body_part).filter(Boolean))].sort();
-  const uniqueEquipment = [...new Set(availableExercises.map(ex => ex.equipment).filter(Boolean))].sort();
-  const filteredLibrary = availableExercises.filter(ex => {
-    const matchesSearch = ex.title.toLowerCase().includes(modalSearchTerm.toLowerCase()) ||
-      ex.body_part?.toLowerCase().includes(modalSearchTerm.toLowerCase());
-    const matchesBodyPart = selectedBodyPart === '' || ex.body_part === selectedBodyPart;
-    const matchesEquipment = selectedEquipment === '' || ex.equipment === selectedEquipment;
-    return matchesSearch && matchesBodyPart && matchesEquipment;
-  }).slice(0, 100);
-
-  const handleSelectFromModal = (ex) => {
-    setExerciseInput(ex.title);
-    setSelectedExerciseId(ex.id);
-    setIsModalOpen(false);
-    setModalSearchTerm('');
-    setSelectedBodyPart('');
-    setSelectedEquipment('');
-  };
-
-  // -- Block management --
-  const handleAddBlock = (type = 'single') => {
-    const newBlock = {
-      id: Date.now().toString(), // local ID until saved
-      block_type: type,
-      rounds: 1,
-      round_rest_seconds: 0,
-      exercises: []
-    };
-    setBlocks([...blocks, newBlock]);
-  };
-
-  const handleRemoveBlock = (blockIndex) => {
-    setBlocks(blocks.filter((_, i) => i !== blockIndex));
-  };
-
-  // Add an exercise to a specific block (default: last block)
-  const handleAddExerciseToBlock = (e, blockIndex = blocks.length - 1) => {
-    e.preventDefault();
-    if (!exerciseInput.trim()) return;
-    if (blockIndex < 0) {
-      // If no blocks exist, create a single block first
-      handleAddBlock('single');
-      return;
-    }
-
-    let exerciseIdToSubmit = selectedExerciseId;
-    let exerciseNameToSubmit = exerciseInput;
-    let trackingTypeToSubmit = 'weight_reps';
-    const exactMatch = availableExercises.find(ex => ex.title.toLowerCase() === exerciseInput.trim().toLowerCase());
-    if (exactMatch) {
-      exerciseIdToSubmit = exactMatch.id;
-      exerciseNameToSubmit = exactMatch.title;
-      trackingTypeToSubmit = exactMatch.tracking_type || 'weight_reps';
-    }
-
+  // Called by ExercisePicker when an exercise is selected or created
+  const handleExercisePicked = (exercise) => {
     const newExercise = {
-      exercise_id: exerciseIdToSubmit,
-      name: exerciseNameToSubmit,
-      tracking_type: trackingTypeToSubmit,
+      exercise_id: exercise.id,
+      name: exercise.title,
+      tracking_type: exercise.tracking_type || 'weight_reps',
       rest_seconds: 90,
       auto_advance: false,
       work_seconds: null,
@@ -141,11 +77,33 @@ export default function CreateTemplate() {
       tags: []
     };
 
-    const newBlocks = [...blocks];
-    newBlocks[blockIndex].exercises.push(newExercise);
+    let newBlocks = [...blocks];
+    if (newBlocks.length === 0) {
+      newBlocks = [{
+        id: Date.now().toString(),
+        block_type: 'single',
+        rounds: 1,
+        round_rest_seconds: 0,
+        exercises: []
+      }];
+    }
+    newBlocks[newBlocks.length - 1].exercises.push(newExercise);
     setBlocks(newBlocks);
-    setExerciseInput('');
-    setSelectedExerciseId(null);
+  };
+
+  // -- Block management --
+  const handleAddBlock = (type = 'single') => {
+    setBlocks([...blocks, {
+      id: Date.now().toString(),
+      block_type: type,
+      rounds: 1,
+      round_rest_seconds: 0,
+      exercises: []
+    }]);
+  };
+
+  const handleRemoveBlock = (blockIndex) => {
+    setBlocks(blocks.filter((_, i) => i !== blockIndex));
   };
 
   // -- Exercise-level helpers (within a block) --
@@ -227,7 +185,6 @@ export default function CreateTemplate() {
       alert("Please provide a name and at least one block with exercises.");
       return;
     }
-    // Validate each block has at least one exercise with at least one set
     for (let bi = 0; bi < blocks.length; bi++) {
       const b = blocks[bi];
       if (b.exercises.length === 0) {
@@ -242,7 +199,6 @@ export default function CreateTemplate() {
       }
     }
 
-    // Sanitize for API
     const sanitizedBlocks = blocks.map(block => ({
       block_type: block.block_type,
       rounds: block.rounds || 1,
@@ -295,6 +251,16 @@ export default function CreateTemplate() {
           style={{ width: '100%', padding: '16px', borderRadius: '8px', border: '1px solid #2d2d2d', background: '#1e1e1e', color: '#fff', fontSize: '1.2rem', outline: 'none', boxSizing: 'border-box' }} />
       </div>
 
+      {/* ExercisePicker replaces the old input + modal */}
+      <div style={{ marginBottom: '20px' }}>
+        <ExercisePicker onSelect={handleExercisePicked} placeholder="Type custom or pick…" />
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '30px', flexWrap: 'wrap' }}>
+        <button onClick={() => handleAddBlock('single')} style={{ background: '#333', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>+ Single Block</button>
+        <button onClick={() => handleAddBlock('circuit')} style={{ background: '#eab308', color: '#111', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>+ Circuit</button>
+      </div>
+
       {/* Blocks */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '30px' }}>
         {blocks.map((block, blockIndex) => (
@@ -331,7 +297,7 @@ export default function CreateTemplate() {
             {/* Exercises inside block */}
             {block.exercises.map((ex, exIndex) => (
               <div key={exIndex} style={{ background: '#111', border: '1px solid #2d2d2d', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                {/* Exercise header */}
+                {/* ... (the rest of exercise card, unchanged from your old version) ... */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
@@ -369,7 +335,7 @@ export default function CreateTemplate() {
                 </div>
 
                 {/* Timer & Auto-advance controls per exercise */}
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #2d2d2d' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px', marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #2d2d2d', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <label style={{ color: '#ccc', fontSize: '0.8rem' }}>Rest (s)</label>
                     <input type="number" min="0" value={ex.rest_seconds ?? 90} onChange={(e) => handleUpdateExerciseField(blockIndex, exIndex, 'rest_seconds', Number(e.target.value) || 0)}
@@ -404,7 +370,7 @@ export default function CreateTemplate() {
                 {/* Sets */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {ex.sets.map((set, setIndex) => (
-                    <div key={setIndex} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div key={setIndex} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ color: '#888', width: '25px', fontWeight: 'bold' }}>{setIndex + 1}</span>
                       {ex.tracking_type === 'time' ? (
                         <>
@@ -431,107 +397,20 @@ export default function CreateTemplate() {
                           <input type="number" placeholder="Reps" value={set.reps} onChange={(e) => handleUpdateSet(blockIndex, exIndex, setIndex, 'reps', e.target.value)} style={setInputStyle} />
                         </>
                       )}
-                      <button onClick={() => handleRemoveSet(blockIndex, exIndex, setIndex)} style={{ background: 'transparent', color: '#666', border: 'none', padding: '10px', cursor: 'pointer' }}>✕</button>
+                      <button onClick={() => handleRemoveSet(blockIndex, exIndex, setIndex)} style={{ background: 'transparent', color: '#666', border: 'none', padding: '10px', cursor: 'pointer', marginLeft: 'auto' }}>✕</button>
                     </div>
                   ))}
-                  <button onClick={() => handleAddSet(blockIndex, exIndex)} style={{ width: '100%', padding: '8px', background: '#111', color: '#4ade80', border: '1px dashed #2d2d2d', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>+ Add Set</button>
+                  <button onClick={() => handleAddSet(blockIndex, exIndex)} style={{ width: '100%', padding: '8px', background: '#111', color: '#4ade80', border: '1px dashed #2d2d2d', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', marginTop: '4px' }}>+ Add Set</button>
                 </div>
               </div>
             ))}
-
-            {/* Add exercise to this block */}
-            <div style={{ marginTop: '12px' }}>
-              <button
-                onClick={(e) => { handleAddExerciseToBlock(e, blockIndex); }}
-                disabled={!exerciseInput.trim()}
-                style={{
-                  background: exerciseInput.trim() ? '#2563eb' : '#333',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '10px 16px',   // slightly larger
-                  borderRadius: '8px',
-                  fontWeight: 'bold',
-                  cursor: exerciseInput.trim() ? 'pointer' : 'not-allowed',
-                  width: '100%',
-                  fontSize: '0.95rem'
-                }}
-              >
-                Add to Block
-              </button>
-            </div>
           </div>
         ))}
-      </div>
-
-      {/* Global Add Controls */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <input type="text" placeholder="Type custom or pick..." value={exerciseInput} onChange={(e) => { setExerciseInput(e.target.value); setSelectedExerciseId(null); }}
-          style={{ flex: 1, minWidth: '200px', padding: '12px', borderRadius: '8px', border: '1px solid #2d2d2d', background: '#1e1e1e', color: '#fff', fontSize: '1rem', outline: 'none' }} />
-        <button onClick={() => setIsModalOpen(true)} style={{ background: '#1e1e1e', border: '1px solid #2d2d2d', color: '#fff', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Browse</button>
-        <button onClick={handleAddExerciseToBlock} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Add Exercise</button>
-        <button onClick={() => handleAddBlock('single')} style={{ background: '#333', color: '#fff', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>+ Single Block</button>
-        <button onClick={() => handleAddBlock('circuit')} style={{ background: '#eab308', color: '#111', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>+ Circuit</button>
       </div>
 
       <button onClick={handleSaveTemplate} style={{ width: '100%', padding: '20px', background: '#4ade80', color: '#111', fontSize: '1.2rem', fontWeight: 'bold', borderRadius: '12px', border: 'none', cursor: 'pointer' }}>
         {isEditMode ? 'Save Changes' : 'Save Template'}
       </button>
-
-      {/* Exercise Library Modal */}
-      {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' }}>
-          <div style={{ background: '#1e1e1e', width: '100%', maxWidth: '480px', maxHeight: '85vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #2d2d2d' }}>
-            <div style={{ padding: '16px', borderBottom: '1px solid #2d2d2d', background: '#111' }}>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                <input type="text" placeholder="Search by name..." value={modalSearchTerm} onChange={(e) => setModalSearchTerm(e.target.value)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #2d2d2d', background: '#1e1e1e', color: '#fff', outline: 'none' }} autoFocus />
-                <button onClick={() => setIsModalOpen(false)} style={{ background: 'transparent', color: '#ef4444', padding: '10px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>Close</button>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <select value={selectedBodyPart} onChange={(e) => setSelectedBodyPart(e.target.value)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #2d2d2d', background: '#1e1e1e', color: '#fff', outline: 'none' }}>
-                  <option value="">All Body Parts</option>
-                  {uniqueBodyParts.map(bp => <option key={bp} value={bp}>{bp}</option>)}
-                </select>
-                <select value={selectedEquipment} onChange={(e) => setSelectedEquipment(e.target.value)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #2d2d2d', background: '#1e1e1e', color: '#fff', outline: 'none' }}>
-                  <option value="">All Equipment</option>
-                  {uniqueEquipment.map(eq => <option key={eq} value={eq}>{eq}</option>)}
-                </select>
-              </div>
-            </div>
-            <div style={{ overflowY: 'auto', flex: 1, padding: '10px' }}>
-              {availableExercises.length === 0 ? (
-                <p style={{ textAlign: 'center', padding: '20px', color: '#888' }}>Loading library...</p>
-              ) : filteredLibrary.length > 0 ? (
-                filteredLibrary.map(ex => (
-                  <div key={ex.id} style={{ borderBottom: '1px solid #2d2d2d' }}>
-                    <div onClick={() => handleSelectFromModal(ex)} style={{ padding: '16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontWeight: 'bold', color: '#fff', display: 'block' }}>{ex.title}</span>
-                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                          {ex.body_part && <span style={{ background: '#333', color: '#ccc', fontSize: '0.75rem', padding: '4px 8px', borderRadius: '6px' }}>{ex.body_part}</span>}
-                          {ex.equipment && <span style={{ background: '#333', color: '#ccc', fontSize: '0.75rem', padding: '4px 8px', borderRadius: '6px' }}>{ex.equipment}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p style={{ textAlign: 'center', padding: '20px', color: '#888' }}>No exercises found.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
-
-const setInputStyle = {
-  flex: 1,
-  minWidth: 0,
-  padding: '10px',
-  borderRadius: '6px',
-  border: '1px solid #2d2d2d',
-  background: '#111',
-  color: '#fff',
-  textAlign: 'center'
-};

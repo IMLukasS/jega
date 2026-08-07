@@ -11,6 +11,7 @@ import FreestyleTypeSwitcher from './workout/FreestyleTypeSwitcher';
 import RestTimerPanel from './workout/RestTimerPanel';
 import WorkoutTimeline from './workout/WorkoutTimeline';
 import CircuitCard from './workout/CircuitCard';
+import SwipeUnlockOverlay from './workout/SwipeUnlockOverlay';
 
 export default function FocusWorkout() {
   const {
@@ -25,7 +26,9 @@ export default function FocusWorkout() {
 
   const userUnit = (localStorage.getItem('preferredUnit') || 'lbs').toLowerCase();
   const weightLabel = userUnit === 'kg' ? 'Kg' : 'Lbs';
+  
   const [freestyleTrackingType, setFreestyleTrackingType] = useState('weight_reps');
+  const [screenOff, setScreenOff] = useState(false);
 
   // Maintain state for active circuits by unit ID
   const [circuitStates, setCircuitStates] = useState({});
@@ -111,6 +114,11 @@ export default function FocusWorkout() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '90vh', gap: '20px' }}>
+      
+      {screenOff && (
+        <SwipeUnlockOverlay onUnlock={() => setScreenOff(false)} />
+      )}
+
       {/* Top header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -120,6 +128,9 @@ export default function FocusWorkout() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <button onClick={() => setScreenOff(true)} style={headerBtnStyle('#fff')} title="Screen off">
+            🌙
+          </button>
           <button onClick={handleCancelWorkout} style={headerBtnStyle('#888')}>Cancel</button>
           <button onClick={handleFinalizeWorkout} style={headerBtnStyle('#10b981')}>Finish</button>
         </div>
@@ -181,12 +192,12 @@ export default function FocusWorkout() {
 
       {/* Workout timeline */}
       <WorkoutTimeline
-  units={workoutUnits}
-  completedSets={allCompletedSets}
-  circuitStates={circuitStates}
-  activeIndex={activeUnitIndex}
-  onSelect={setActiveUnitIndex}
-/>
+        units={workoutUnits}
+        completedSets={allCompletedSets}
+        circuitStates={circuitStates}
+        activeIndex={activeUnitIndex}
+        onSelect={setActiveUnitIndex}
+      />
     </div>
   );
 }
